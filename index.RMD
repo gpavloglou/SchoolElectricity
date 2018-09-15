@@ -1,0 +1,1439 @@
+---
+title: "School Electricity Analysis"
+author: "George Pavloglou"
+date: "xx September 2018"
+output:
+    html_document:
+    fig_height: 7
+    fig_width: 9
+    keep_md: yes
+    toc: yes
+    toc_float: yes
+---
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+# Scoping Population of Study
+
+1) Schools for which electricity data was aggregated for the 2017-18 business plan
+    a.	Schools with electricity data for period between Apr 2016 and March 2017
+    b.	Including only schools that were open for all 12 months
+    c.	only include schools for which enrolments were known during period
+    d.	Must include floor area (floor area must not  equal 0 or be missing)
+    e.	Include school type (e.g. 'Primary', 'Secondary', 'Special', etc)
+    
+
+2)	Indicate whether on SWEP Electricity. If on SWEP, then must be indicated as having had sensors installed for at least 12 months (**already confirmed in creation of dataset**).
+
+3)	Indicate whether schools were confirmed to have used solar during period (**already confirmed in creation of dataset**). Note: schools indicated as having solar were confirmed as having used solar at least once during period based on whether there was a feed-in tariff payment identified in their billing.
+
+4)	Indicate if they were Resource Smart Schools. But they must have been on this program for all 12 months (**already confirmed in creation of dataset**).
+
+# Import, Inspect and Clean Data
+## Import Data
+```{r echo=TRUE, results='hide'}
+# Set Working Directory
+setwd("F:\\GeorgesFile\\R\\SchoolElectricity_VSBA_201803")
+
+# Activate Packages
+pckgs <- c("tidyverse","readxl","broom", "janitor", "oilabs","car", "caret", "gridExtra","grid","cowplot","PerformanceAnalytics","plotly","lmtest","sandwich", "het.test", "ggthemes", "jtools", "MASS", "estimatr")
+sapply(pckgs, require, character.only = TRUE)
+
+# Import Dataset
+Elec201617 <- read_excel("SchoolElectricity201617v5.xlsx", na = c("","#N/A","NA"))
+
+# Convert into Dataframe
+Elec201617 <- as.data.frame(Elec201617)
+
+# Inspect Data
+# glimpse(Elec201617)
+# View(Elec201617)
+# summary(Elec201617)
+
+```
+
+## Clean Data (Round 1)
+### Review missing data
+```{r echo = T, results = 'hide'}
+# Review missing data
+Elec201617[!complete.cases(Elec201617),]
+```
+11 rows with missing data. Many of the schools with missing data are those where 'Match with Enrol?' == 'N'. If these are excluded, then fewer missing data to deal with. Exclude rows where Match with Enrol is "N".
+
+```{r echo = T, results = 'hide'}
+# Exclude rows where Match with Enrol is "N".
+Elec201617 <- Elec201617 %>%
+  filter(Enrol != "N")
+
+# Inspect missing data again:
+Elec201617[!complete.cases(Elec201617),]
+
+# Since Geography for xxxxxxx School is known this can be filled in manually:
+Elec201617[492,"Geography"] <- "Regional Centre"
+
+# Re-check remaining missing data:
+Elec201617[!complete.cases(Elec201617),]
+
+```
+Missing values under column header 'WeightedAvBuildingAge' for 4 schools. Will rely on R to remove these when performing calculations so leave these as NA for now.
+
+
+### Check for any *numeric* values that are zero
+
+```{r}
+# Subset only numeric columns
+Search0 <- Elec201617[,sapply(Elec201617,is.numeric)]
+
+# Return rows where column value = 0
+for(i in 1:ncol(Search0)){
+  print(names(Search0[i]))
+  print(which(Search0[,i]==0))
+}  
+
+rm(Search0)  
+
+```
+No zero values found for any numeric variables. 
+
+### Filter out unwanted values based on Population Definition
+```{r echo=TRUE, results='hide'}
+Elec201617 %>%
+  filter(QtyMonthsOpenInPeriod != 12) # New schools that opened at start of 2017. Filter these out.
+Elec201617 <- Elec201617 %>%
+  filter(QtyMonthsOpenInPeriod == 12)
+
+
+# Weighted Av Building Age < 12 investigation
+
+# Rename Column Name:
+Elec201617 <- rename(Elec201617,
+                     BuildAge = `WeightedAvBuildingAge\r\n(by original construction date)`)
+
+# Now investigate for BuildAge < 12
+Elec201617 %>% filter(BuildAge < 12)
+
+```
+**Explanation for BuildAge < 12:** A weighted average age of buildings (by original construction date) less than 12 must mean that some recent capital works have taken place in those 79 schools within the past year. The school where BuildAge = x officially opened in xxx 20xx and had first school term in xxx 20xx. This is therefore also a new school, which may have had more capital works or refurbishments between Apr 20xx and Mar 20xx. Keep BuildAge as is for now.
+
+```{r echo=TRUE, results='hide'}
+# Re-check data for further filtering:
+#glimpse(Elec201617)
+#summary(Elec201617)
+
+# Check Match with Enrol
+Elec201617 %>% filter(`Match with Enrol?` == "Y") # Returns 1,458 rows
+nrow(Elec201617) # 1,458 rows
+levels(Elec201617$`Match with Enrol?`) # No more 'Match with Enrol' == "N"
+
+```
+Confirmed that all criteria against 'Match with Enrol' variable met (as per previous filter). Now start removing variables unnecessary for analysis.  
+
+### Remove Variables not needed for analysis
+* Remove `Match with Enrol?`
+* Remove QtyMonthsOpenInPeriod (all values = 12, therefore redundant)
+
+```{r}
+Elec201617 <- Elec201617 %>% 
+  dplyr::select(., -c(`Match with Enrol?`, QtyMonthsOpenInPeriod))
+```
+
+### Rename Variables
+
+```{r}
+Elec201617 <- rename(
+  	Elec201617,Elec = `Activity Quantity\r\n(kWh p.a.)`,
+ 	kWh_m2 = `Avg. kWh p.a. per m2\r\n(kWh/m2)`,
+ 	Cost = Est_Annual_Cost,
+  Cost_kWh = `Est_Avg_$_per_kWh`,
+  Type = School_Type,
+  kWh_Enrol = kWhPerEnrol)
+
+# glimpse(Elec201617)
+```
+
+### Transform Variables
+   * Change specific variables into factor
+   * Include additional cost variables
+   * Round values of specific variables to two decimal places
+
+#### Change specific variables into __factors:__
+   
+   * Type
+   * SWEP
+   * Solar
+   * Geography
+   * NatHERS
+   * RSS
+   * BCAZone
+
+```{r}
+# Change specific variables into factors:
+Elec201617$Type <- as.factor(Elec201617$Type) # Type
+Elec201617$SWEP <- as.factor(Elec201617$SWEP)   #SWEP
+Elec201617$Solar <- as.factor(Elec201617$Solar) #Solar
+Elec201617$Geography <- as.factor(Elec201617$Geography)  #Geography
+Elec201617$NatHERS <- as.factor(Elec201617$NatHERS) #NatHERS
+Elec201617$RSS <- as.factor(Elec201617$RSS) #RSS
+Elec201617$BCA <- as.factor(Elec201617$BCA) #BCA
+#str(Elec201617)
+
+# 1) Rename and check levels: 
+   # Rename level "Pri/Sec" into "PriSec"
+       levels(Elec201617$Type)[levels(Elec201617$Type) == "Pri/Sec"] <- "PriSec"
+
+   # Rename level "Regional Centre" into "Regional"
+       levels(Elec201617$Geography)[levels(Elec201617$Geography) == "Regional Centre"] <-"Regional"
+
+    # Re-check levels for $Type, $Geography, $BCA
+        lapply(Elec201617[c("Type","Geography", "BCA")],levels) # changes confirmed
+
+# 2) Choose Reference Level in Factor Variables:
+# Let 'Primary' be the reference level for the factor 'Type'
+# Let 'Urban' be the reference level for the factor 'Geography'
+# Let 'Zone_6' be the reference level for the factor 'BCA'
+
+
+Elec201617$Type <- factor(Elec201617$Type, 
+                          levels = c("Primary", "Secondary", "PriSec", "Special","Language"))
+
+Elec201617$Geography <- factor(Elec201617$Geography, 
+                               levels = c("Urban", "Regional", "Rural"))
+
+Elec201617$BCA <- factor(Elec201617$BCA, 
+                         levels = c("Zone_6", "Zone_4","Zone_7"))
+
+# levels(Elec201617$Type)  change confirmed 
+# levels(Elec201617$Geography)  change confirmed
+# levels(Elec201617$BCA) change confirmed
+
+# Check whether factors are ordered:
+# sapply(Elec201617[,c("Type","SWEP","Solar","Geography","NatHERS","RSS","BCA")],is.ordered)
+
+
+```
+
+#### Include additional cost variables
+
+```{r} 
+Elec201617 <-  Elec201617 %>% 
+  mutate(Cost_m2 = Cost/Area,
+         Cost_Enrol = Cost/Enrol)
+
+```
+
+#### Round 'double' type variables two decimal places
+If the variable is of type "double", then use the following function: round(.,2) (i.e. round all data to two decimal places)
+
+```{r} 
+Elec201617 <- Elec201617 %>% 
+  mutate_if(is.double, funs(round(.,2)))
+```
+
+### Change from data frame to a tibble
+```{r} 
+tbl1617 <- as.tbl(Elec201617)
+```
+Now ready to commence exploratory data analysis.
+
+## Exploratory Data Analysis (Round 1)
+
+```{r echo=T, results='hide'} 
+# summary(tbl1617)
+```
+__Outstanding Observations:__
+
+   * Only xx Language Schools existed in the entire school portfolio over the period, and these are captured here.
+   * Two (2) NAs for BuildAge
+   * Only 5 per cent (n = xxx) in this sample are on the SWEP electricity program
+   * About 35 per cent (n = xxx) were identified as having used solar
+   * Only 5 per cent (n = xxx) were in NaTHERS zones 20 or 27
+   * Lowest kWh per sqm is 0.38 kWh per m^2^
+
+### Plots and Summary Stats
+#### Summary Plot: Electricity Consumption
+
+```{r}
+# Boxplot:
+boxplotP <- ggplot(data = tbl1617, aes(x = "", y = Elec)) +
+  geom_boxplot(alpha = 0.3, fill = "#3182bd", outlier.colour = "#3182bd") +
+  stat_summary(fun.y = mean,
+               geom = "point",
+               shape = 4,
+               size = 3) +
+  ggtitle("Electricity Consumption",
+          subtitle = "(kWh per annum)") +
+  scale_y_continuous(breaks = seq(0,1200000, 300000)) +
+  xlab("") +
+  ylab("") +
+  coord_flip() +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = 0)  +   
+  # remove if showing plot publically
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+  
+
+# Histogram:
+histP <- ggplot(data = tbl1617, aes(x = Elec)) +
+  geom_histogram( fill = "#3182bd", binwidth = 50000, colour = "white") +
+  scale_x_continuous(breaks = seq(0,1200000, 300000)) +
+  xlab("Electricity Usage (kWh p.a.)") +
+  ylab("") +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = 0) +   
+  # remove figures if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+# Produce combined boxplot/histogram plot:
+grid.arrange(boxplotP, histP, ncol = 1)
+
+```
+
+### Summary Statistics (Sample Electricity and Cost)
+```{r  echo=T, results='hide'}
+(Elec_SummaryStats <- sapply(tbl1617[,c("Elec","Cost")], summary))
+
+```
+
+
+
+### Summary Statistics: by School Type
+#### Summary Tables
+```{r echo=T, results='hide'}
+# Summary Stats: Electricity by School Type
+ by(tbl1617$Elec, tbl1617$Type, summary)
+
+# Total Electricity by School Type
+ tbl1617 %>%
+   dplyr::select(Elec, Type) %>%
+   group_by(Type) %>%
+   summarise(Total = sum(Elec), 
+                        Percent = round(Total/sum(tbl1617$Elec),3))
+
+```
+#### Summary Plot
+```{r}
+### Box Plots: Electricity consumption by School Type
+ggplot(data = tbl1617, aes(x = Type, y = Elec, fill = Type)) +
+  geom_boxplot(alpha = 0.5) +
+  stat_summary(fun.y = mean,
+               geom = "point",
+               shape = 4,
+               size = 3) +
+  ggtitle("Annual Electricity Consumption by School Type",
+          subtitle = "by School Type") +
+  ylab("Annual Consumption (kWh p.a.)")+
+  theme_minimal() + 
+  scale_fill_calc() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = 0) + 
+  # remove figures if showing plot publicly
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank())
+
+### Density Plot: Electricity consumption by School Type
+ggplot(data = tbl1617, aes(x = Elec, fill = Type)) +
+  geom_density(alpha = 0.3) +
+  ggtitle("Distribution of Electricity Consumption",
+          "by School Type") +
+  xlab("Electricity Consumption (kWh p.a.)") +
+  ylab("")+
+  facet_wrap(~Type) +
+  scale_fill_calc()+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust =0.5),
+        axis.title = element_text(size = 9),
+        legend.position = 0)+ 
+  # remove figures if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+
+```
+
+
+### Explore Electricity per Floor area
+
+```{r echo=T, results='hide'}
+ tbl1617 %>%
+   dplyr::select(kWh_m2, Type) %>%
+   group_by(Type) %>%
+   summarise(Mean = mean(kWh_m2), 
+             StDev = round(sd(kWh_m2),3),
+             MAD = mad(kWh_m2, constant = 1)) %>%
+   arrange(desc(Mean))
+
+```
+
+
+```{r}
+### Box Plots: Electricity per Floor Area consumption by School Type
+ggplot(data = tbl1617, aes(x = Type, y = kWh_m2, fill = Type)) +
+  geom_boxplot(alpha = 0.5) +
+  stat_summary(fun.y = mean,
+               geom = "point",
+               shape = 4,
+               size = 3) +
+  ggtitle("Electricity Usage per Floor Area by School Type",
+          subtitle = "(kWh/m2 per annum)") +
+  scale_fill_calc() +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = 0) +
+  # remove figures if showing plot publicly
+  theme(axis.text.y  = element_blank(),
+        panel.grid = element_blank())    
+
+### Density Plot: Electricity consumption per Floor Area by School Type
+ggplot(data = tbl1617, aes(x = kWh_m2, fill = Type)) +
+  geom_density(alpha = 0.3) +
+  ggtitle("Distribution of Electricity per Floor Area Consumption",
+          "by School Type") +
+  xlab("Electricity Consumption (kWh/m2 p.a.)") +
+  facet_wrap(~Type) +
+  coord_cartesian(xlim = c(0,75)) +
+  scale_fill_calc() +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust =0.5),
+        axis.title.y = element_blank(),
+        legend.position = 0) +
+  # remove figures if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+
+
+```
+
+
+
+## Explore kWh/m^2^ Outliers
+
+```{r echo=T, results='hide'}
+# Top 5 kWh/m2 outliers by School Type
+
+ tbl1617  %>% 
+   dplyr::select(1,5,3:4,8) %>%
+   arrange(desc(kWh_m2)) %>%
+   arrange(Type) %>% 
+   group_by(Type) %>%
+   top_n(5,kWh_m2)
+
+tbl1617[1216,1:5]  #Unusually small floor Area
+
+
+# Bottom 5 kWh/m2 outliers by School Type
+
+ tbl1617  %>% 
+   dplyr::select(1,5,3:4,8) %>%
+   arrange(kWh_m2) %>%
+   arrange(Type) %>% 
+   group_by(Type) %>%
+   top_n(-5,kWh_m2)
+
+
+```
+**N.B:** Extensive inspection of kWh/m2 outliers performed; involved examination, and where necessary, removal and/or update of observations.
+
+## Clean Data (Round 2)
+
+### Remove spurious observations
+``` {r}
+remove <- -c(233,  346,  796, 1049, 1137, 1216)    
+tbl1617 <- tbl1617[remove,]  
+
+```
+### Update records
+```{r eval=TRUE, echo=FALSE}
+# names(tbl1617)
+
+rcrd.update <- c(3,5,6,15,18,19) # columns to update
+
+
+# Update Observation 1123
+tbl1617[1123,rcrd.update] <- c(532850.26,23.67,85256.04,532850.26/794.6,85256.04/22513.5,85256.04/794.6)
+# View(tbl1617[1123,])    
+
+# Update Observation 894
+tbl1617[894,rcrd.update] <- c(611060.35,33.36,116101.5,611060.35/2038.3,116101.5/18318.96,116101.5/2038.3)
+#View(tbl1617[894,])
+
+# Update Observation 262
+rcrd.update1 <-  c(rcrd.update,7)
+tbl1617[262,rcrd.update1] <- c(510056.64,42.3,86709.63,510056.64/510.6,86709.63/12058.64,86709.63/510.6,0.17)  
+
+#View(tbl1617[262,])  
+
+# Update Observation 72
+#View(tbl1617[72,])
+tbl1617[72,rcrd.update1] <- c(384959.50,14.71,69292.71,384959.50/1065.975,69292.71/26161.08,69292.71/1065.975,0.18)
+
+
+
+# Again round all 'double' variables to two decimal places (to tidy updated records)
+
+tbl1617 <- tbl1617 %>% 
+  mutate_if(is.double, funs(round(.,2)))
+
+```
+
+
+### Review Electricity per Enrolment Data
+#### Summary Stats
+```{r echo=T, results='hide'}
+
+tbl1617 %>%
+  dplyr::select(kWh_Enrol, Type) %>%
+  group_by(Type) %>%
+  summarise(Mean = mean(kWh_Enrol), 
+            StDev = round(sd(kWh_Enrol),3),
+            MAD = mad(kWh_Enrol, constant = 1)) %>% # Mean Absolute Deviation
+  arrange(desc(Mean))
+
+
+```
+
+#### Plots
+```{r}
+ggplot(data = tbl1617, aes(x = Type, y = kWh_Enrol, fill = Type)) +
+  geom_boxplot(alpha = 0.5) +
+  stat_summary(fun.y = mean,
+               geom = "point",
+               shape = 4,
+               size = 3) +
+  ggtitle("Electricity Usage per Enrol by School Type",
+          subtitle = "(kWh/enrol per annum)") +
+  scale_fill_brewer(palette = "Set1")+
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = 0)+
+  # remove figures if showing plot publicly
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank())
+
+# Density Plot: Electricity consumption per Enrol by School Type
+ggplot(data = tbl1617, aes(x = kWh_Enrol, fill = Type)) +
+  geom_density(alpha = 0.3) +
+  ggtitle("Distribution of Electricity per Enrol Consumption",
+          "by School Type") +
+  xlab("Electricity Consumption (kWh/enrol p.a.)") +
+  facet_wrap(~Type) +
+  coord_cartesian(xlim = c(0,2000)) +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust =0.5),
+        axis.title.y =  element_blank(),
+        legend.position = 0) +
+  # remove figures if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+```
+
+
+### Review kWh/enrol Outliers
+```{r echo=T, results= 'hide'}
+tbl1617  %>% 
+  dplyr::select(1,15,3,14,8) %>%
+  arrange(desc(kWh_Enrol)) %>%
+  arrange(Type) %>% 
+  group_by(Type) %>%
+  top_n(7,kWh_Enrol)
+
+# Bottom 7 kWh/enrol outliers by School Type
+tbl1617  %>% 
+  dplyr::select(1,15,3,14,8) %>%
+  arrange(kWh_Enrol) %>%
+  arrange(Type) %>% 
+  group_by(Type) %>%
+  top_n(-7,kWh_Enrol)
+
+### Investigate xxxxxxx (xxxxxxx) Schools
+tbl1617 %>%
+  filter(between(Enrol,10,15)) %>%
+  arrange(desc(Elec))
+
+tbl1617 %>%
+  filter(between(Area,700,900)) %>%
+  arrange(desc(Elec))
+
+```
+
+Extensive inspection of kWh/enrol outliers performed. Involved examination, and where necessary, removal and/or update of observations.   
+
+### Remove spurious kWh/enrol observations
+```{r}
+remove1 <- -c(6,  235,  587,  589,  892, 1099, 1133, 1212, 1225) # remove these rows 
+tbl1617 <- tbl1617[remove1,]
+
+# Remove objects no longer needed:
+rm(remove,remove1,rcrd.update,rcrd.update1)
+
+```
+
+## Exploratory Data Analysis (Round 2)
+
+### Breakdown of Observations
+```{r echo = T, results = 'hide'}
+# Breakdown of Observation by School Type
+tbl1617%>%
+  tabyl(Type, show_missing_levels = F)%>%
+  adorn_totals(where = c("row"))%>%
+  adorn_pct_formatting()
+
+# Breakdown by School Type and Solar PV Use
+
+tbl1617%>%
+  mutate(Solar = fct_recode(Solar, "NoSolar"="0","Solar"="1"))%>%
+  tabyl(Type,Solar, show_missing_levels = F)%>%
+  adorn_totals(where = c("row","col"))%>%
+  adorn_percentages()%>%
+  adorn_pct_formatting()%>%
+  adorn_ns(position = "front")
+
+```
+
+
+### Summary Statistics by Geography
+```{r echo = T, results = 'hide'}
+# Summary Electricity Consumption by Geography
+by(tbl1617$Elec, tbl1617$Geography, summary)
+
+
+# Total Electricity by Geography
+tbl1617 %>%
+  dplyr::select(Elec, Geography) %>%
+  group_by(Geography) %>%
+  summarise(n =  n(),
+            Total = sum(Elec), 
+            Percent = round(Total/sum(tbl1617$Elec),2))
+
+```
+
+**Comment:** approx. 70% of all electricity usage in this sample is by Urban schools.  Since this sample is nearly the whole portfolio, this result can be inferred for the population.
+
+#### Bar Chart: Electricity Consumption by Geography
+```{r}
+ggplot(tbl1617, aes(x = Geography, y = Elec, fill = Geography)) +
+  geom_col() +
+  ggtitle("Total Electricity by Geography",
+          subtitle = "(kWh p.a)") +
+  ylab("Consumption") +
+  scale_fill_calc()+
+  theme_minimal() +
+  theme(legend.position = 0,
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5)) +
+  # Hide numbers if showing plot publicly
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank())
+
+```
+
+
+#### Box Plots: Electricity consumption by Geography
+```{r}
+ggplot(data = tbl1617, aes(x = Geography, y = Elec, fill = Geography)) +
+  geom_boxplot(alpha = 0.5) +
+  stat_summary(fun.y = mean,
+               geom = "point",
+               shape = 4,
+               size = 3) +
+  ggtitle("Electricity Usage by Geography",
+          subtitle = "(kWh per annum)") +
+  ylab("Consumption (kWh per annum)") +
+  scale_fill_tableau() +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = 0) +
+  # Hide numbers if showing plot publically
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank())
+
+```
+
+#### Density Plots: Electricity consumption by Geography
+```{r}
+ggplot(data = tbl1617, aes(x = Elec, fill = Geography)) +
+  geom_density(alpha = 0.3) +
+  ggtitle("Distribution of Electricity Consumption",
+          "by Geography") +
+  xlab("Electricity Consumption (kWh p.a.)") +
+  ylab("")+
+  scale_fill_calc() +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust =0.5),
+        axis.title = element_text(size = 9))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+
+```
+
+
+### Explore Electricity Use by (Weighted Average) Building Age
+```{r echo = T, results = 'hide'}
+# Summary Table
+summary(tbl1617$BuildAge)
+
+```
+
+
+#### Scatter Plot: Electricity Consumption vs Building Age: by Geography
+```{r}
+ggplot(tbl1617, aes(x = BuildAge, y = Elec, colour = Geography)) +
+  geom_point(alpha = 0.4) +
+  ggtitle("Electricity Consumption vs Building Age",
+          subtitle = "by Geographical Zone") +
+  ylab("Electricity (kWh p.a.)") +
+  scale_colour_calc() +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.title = element_text(size = 9))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+```
+
+
+#### Scatter Plot: Electricity Consumption vs Building Age: by School Type
+```{r}
+ggplot(tbl1617, aes(x = BuildAge, y = Elec, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  ggtitle("Electricity Consumption vs Building Age",
+          subtitle = "by School Type") +
+  ylab("Electricity (kWh p.a.)") +
+  scale_color_tableau() +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.title = element_text(size = 9))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+```
+
+
+
+#### Electricity vs Discretized Building Age
+```{r}
+BuildAge_dis <- cut_interval(tbl1617$BuildAge, n = 10)
+
+ggplot(tbl1617, aes(x = BuildAge_dis, y = Elec)) +
+  geom_point(alpha = 0.4) + 
+  ggtitle("Electricity vs Discretized BuildAge") +
+  xlab("Building Age (Discretized)") +
+  theme_minimal() +
+  theme(axis.title = element_text(size = 9),
+        plot.title = element_text(hjust=0.5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+```
+ 
+ 
+ **Comment:** There does not seem to be a clear relationship between a school's electricity consumption and the weighted average age of its buildings (i.e. weighted based on construction zones inside buildings). However, building age in this instance is based on *original construction date*, and does not take into account maintenance or other refurbishment works. More research needs to be undertaken with a different measure of schools' average building age that takes into account more than just original construction dates.
+
+### Exploring Floor Area Distribution
+#### Combined Histogram and Boxplot
+```{r}
+Hist_Area <-  ggplot(tbl1617, aes(x = Area, y = ..density..)) +
+  geom_histogram(binwidth = 500, colour = "White", fill = "#3182bd") +
+  ggtitle("Floor Area Distribution") +
+  ylab("")+
+  xlab("")+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+BP_Area <- ggplot(tbl1617, aes(y = Area, x = "")) +
+  geom_boxplot(fill = "#3182bd", outlier.colour = "#3182bd", alpha = 0.5) +
+  coord_flip() +
+  ylab("Area (m2)")+
+  xlab("")+
+  theme_minimal()+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+cowplot::plot_grid(Hist_Area, BP_Area, ncol = 1, align = "v") # creates combined plot
+
+```
+
+
+#### Density Plot: Distribution of Floor Area by School Type
+```{r}
+ggplot(tbl1617, aes(x = Area, y = ..density..)) +
+  geom_density(fill="#3182bd") +
+  labs(title = "Distribution of Floor Area",
+       subtitle="by School Type",
+       y = "",
+       x = "Floor Area (m2)")+
+  facet_wrap(~Type) +
+  theme_minimal()+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+```
+
+
+
+#### Boxplot of Area by School Type
+```{r}
+ggplot(tbl1617, aes(y = Area, x = Type)) +
+  geom_boxplot()+
+  # Hide numbers if showing plot publicly
+  theme(axis.text.y = element_blank())
+
+```
+
+
+
+### EDA: Correlation Analysis
+#### Correlation Matrix
+Using the `PerformanceAnalytics::chart.Correlation()` function. The function uses Pearson correlation by default.
+
+```{r}
+corrmat <- tbl1617[,c("Elec","Area","Enrol","BuildAge","kWh_m2","kWh_Enrol","Cost","Cost_kWh")]
+chart.Correlation(corrmat, pch = 19)
+
+```
+
+**Interesting Insights**
+ 
+ * Very strong positive linear relationship (r = 0.91) between total electricity consumption and total floor Area.
+ * Very strong postive linear relationship (r = 0.83) between total electricity consumption and total enrolments, although not as strong as relationship between Elec and Area.
+ * Very strong positive linear relationship between total floor Area and total Enrol (r = 0.82)
+ * However very weak (negative) correlation between Elec and BuildAge (r = -0.087)
+ * Positive and moderate correlation between Average kWh/m2 and total electricity consumption (r = 0.53)
+ * Negative, but weak correlation between Average kWh/enrolment and total electricity consumption (r = - 0.017)
+ * Almost perfect linear assoc (r = 0.97) between total electricity consumpiton and total Cost (goes without saying...)
+ * Negative but weak correlation between average cost per kWh and total electricity consumption (r = - 0.2)
+
+ **Note:** Used the following taxonomy in classifing Pearson correlation:
+   
+ .00-.19 "very weak"
+ .20-.39 "weak"
+ .40-.59 "moderate"
+ .60-.79 "strong"
+ .80-1.0 "very strong"
+
+*Source:* [Pearson's Correlation](http://www.statstutor.ac.uk/resources/uploaded/pearsons.pdf)
+
+
+#### Closer Look at Selected Scatterplot Correlations
+```{r}
+## Electricity vs. Floor Area (by School Type)
+ggplot(tbl1617, aes(y = Elec, x = Area, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  ggtitle("Electricity vs. Total Floor Area", subtitle = "(by School Type)") +
+  xlab("Floor area (m2)") +
+  ylab("kilowatt hours per annum") +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+
+# Electricity vs. Floor Area (by school type) - Zoomed In
+ggplot(tbl1617, aes(y = Elec, x = Area, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+#  geom_smooth(method = "lm", se = FALSE) +
+  coord_cartesian(xlim = c(0,10000), ylim=c(0,300000)) +
+  ggtitle("Electricity vs. Total Floor Area - Zoomed In", 
+          subtitle = "(by School Type)") +
+  xlab("Floor area (m2)") +
+  ylab("kilowatt hours per annum") +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+# Electricity vs. Floor Area (by school type) - Facetted
+ggplot(tbl1617, aes(y = Elec, x = Area, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  facet_wrap(~Type) + 
+  ggtitle("Electricity vs Area", subtitle = "by School Type") + 
+  xlab("Floor Area (m2)") +
+  ylab ("kilowatt hours per annum")+
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, hjust= 0.5),
+        plot.subtitle = element_text(size = 10, hjust = 0.5),
+        legend.position = "none")+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+
+# Electricity vs. Floor Area - Language vs Primary Schools
+ggplot(subset(tbl1617, Type %in% c("Language", "Primary")), aes(y = Elec, x = Area, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  coord_cartesian(xlim = c(0,10000) ) +
+  ggtitle("Electricity vs. Total Floor Area", 
+          subtitle = "(Language vs Primary Schools)") +
+  xlab("Floor area (m2)") +
+  ylab("kilowatt hours per annum") +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+# Electricity vs. Floor Area - Primary Schools by Geography
+ggplot(data = tbl1617[tbl1617$Type=="Primary",], 
+       aes(y=Elec, x = Area, colour = Geography)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  ggtitle("Electricity vs. Floor Area", subtitle = "Primary Schools by Geography")+
+  xlab("Floor area (m2)") +
+  ylab("kilowatt hours per annum") +
+  scale_color_tableau() +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 16, hjust =0.5),
+        plot.subtitle = element_text(size = 10, hjust = 0.5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+```
+
+
+### Measures of Electricity Variability by School Type
+```{r echo = T, results = 'hide'}
+# Standard Deviation
+tbl1617 %>%
+  dplyr::select(Elec, Type) %>%
+  group_by(Type) %>%
+  summarise(Qty_of_Schools = n(), std_Elec = sd(Elec)) %>%
+  arrange(desc(std_Elec))
+
+# Mean Absolute Deviation
+tbl1617 %>%
+  dplyr::select(Elec, Type) %>%
+  group_by(Type) %>%
+  summarise(Qty_of_Schools = n(), MeanAbsDev = MeanAbsoluteDeviation(Elec)) %>%
+  arrange(desc(MeanAbsDev))
+
+# Median Absolute Deviation*
+tbl1617 %>%
+  dplyr::select(Elec, Type) %>%
+  group_by(Type) %>%
+  summarise(Qty_of_Schools = n(), MAD = mad(Elec, constant = 1)) %>%
+  arrange(desc(MAD))
+
+# Exploration of Primary Elec Consumption by Geography
+tbl1617 %>%
+  dplyr::select(Geography, Type, Elec) %>%
+  filter(Type == "Primary") %>%
+  group_by(Geography) %>%
+  summarise(n = n(),
+            Mean = mean(Elec), 
+            Std = sd(Elec), 
+            MAD = mad(Elec, constant = 1)) %>%
+  arrange(desc(Mean))
+
+
+```
+
+
+**Median Absolute Deviation** referred to since it is a robust statistic given the skewed distributions of electricity consumption. Scaling factor used = 1 to give a pure median absolute deviation, since we can safely assume a non-normal distribution in the electricity consumption of the school population.
+
+
+### Average kWh/m^2^ by School Type
+```{r echo = T, results = 'hide'}
+tbl1617 %>%
+  dplyr::select(kWh_m2, Type) %>%
+  group_by(Type) %>%
+  summarise(Qty_of_Schools = n(), Avg_kWh_m2 = mean(kWh_m2)) %>%
+  arrange(desc(Avg_kWh_m2))
+
+```
+
+
+#### Observations:
+**Electricity vs. Floor Area (by school type):** 
+  
+* __Secondary schools__ have more variability in electricity consumption for any given total size of floor area. This is especially the case for those over a total of xxxx m^2^, where consumption variability tends to widen as floor area increases.
+
+* On the other hand, __Primary School__ tend to have the least variability in electricity consumption for any given total floor area. They are also distinct from other school types since they tend to cluster around the lower end of both electricity consumption and floor area.
+
+* __PriSec schools__ appear to be a hybrid of Secondary and Primary schools. Consumption tends to cluster around the smaller end of total floor area, but then becomes more variable as total floor area rises. However they do not have as much variability as Secondary Schools (see median absolute deviation in Measures of Electricity Variability by School Type).
+
+* __Special Schools__ tend to have a higher level of consumption than what is generally expected for schools of a similar floor area. The average electricity consumption per square metre of floor area for Special schools is also consistent with this observation (see Average kWh/m2 by School Type). This is likely due to Special schools having specialised facilities to assist with the care and teaching of students with special physical and/or intellectual needs.
+
+* __Language Schools__ like Special Schools also have a higher level of consumption than most schools of a similar 
+floor area (see Electricity vs Floor Area: Language and Primary Schools scatter plot). Nonetheless because there is
+such a small number of Language schools in the portfolio it is difficult to draw further inferences for schools of 
+this type in general. 
+
+
+
+
+### Electricity vs Enrolments
+```{r}
+# Plot: Electricity vs. Enrolments (by school type)
+ggplot(tbl1617, aes(y = Elec, x = Enrol, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  ggtitle("Electricity vs. Total Enrolments", subtitle = "(by School Type)") +
+  xlab("Enrolments") +
+  ylab("kilowatt hours per annum") +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1")+
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+# Plot: Electricity vs. Enrolments - Zoomed In
+ggplot(tbl1617, aes(y = Elec, x = Enrol, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  ggtitle("Electricity vs. Total Enrolments - Zoomed In") +
+  xlab("Enrolments") +
+  ylab("kilowatt hours per annum") +
+  coord_cartesian(xlim = c(0,650)) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1")+
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+# Plot: Electricity vs. Enrolments - Facetted by School Type
+ggplot(tbl1617, aes(y = Elec, x = Enrol, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  ggtitle("Electricity vs. Total Enrolments", subtitle = "(by School Type)") +
+  facet_wrap(~Type) +
+  xlab("Enrolments") +
+  ylab("kilowatt hours per annum") +
+  scale_color_brewer(palette = "Set1")+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5),
+        legend.position = "none")+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+
+```
+
+
+#### Investigate Average kWh per Enrolment - Language Schools
+```{r}
+meankWhEnrolLang <- tbl1617 %>%
+  filter(Type == "Language") %>%
+  summarise(mean(kWh_Enrol)) %>% .[[1]]
+ggplot(subset(tbl1617, Type == "Language"), 
+       aes(y = kWh_Enrol, x = SchoolID)) + 
+  geom_col(alpha = 0.5) + 
+  geom_hline(yintercept = meankWhEnrolLang, linetype = "dashed", colour = "red") +
+  ggtitle("Average Electricity Consumption per Student",
+          subtitle = "Language Schools") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+```
+
+
+
+### Average kWh/Enrolment by School Type - Summary Stats
+```{r echo = T, results = 'hide'}
+tbl1617 %>%
+  dplyr::select(kWh_Enrol,Type) %>%
+  group_by(Type) %>%
+  summarise(Avg_kWh_per_Enrol = mean(kWh_Enrol),
+            Median_kWh_per_Enrol = median(kWh_Enrol),
+            MAD = mad(kWh_Enrol, constant = 1)) %>%
+  arrange(desc(Avg_kWh_per_Enrol))
+
+```
+
+
+#### Observations:
+* __Primary schools__ once again show they are a distinctive group, in that their consumption per student is significantly lower than other school types. In fact, this is true across all enrolment numbers approaching xxxx students.  Consumption is also a lot less variable than the other school types except for Language schools. However, per-student consumption variability is on par with Language schools, which is remarkable considering that there are so many more primary schools than language schools. 
+
+ * __Secondary schools__ came in at _third place_ behind __PriSec schools__. This is surprising given that secondary schools ranked higher than PriSec for average consumption per floor area and the strong relationship between floor area and enrolments.  What is also surprising is that __PriSec schools__ had more variability in per-student consumption than Secondary, since the reverse was true for average kWh per floor area. In fact, the variability (median absolute deviation) is significantly more for PriSec than for Secondary.
+
+ * __Special schools__ had the highest average per-enrolment usage out of all the school types. This is not surprising considering the specialised equipment and services required to cater for the wellbeing and learning of these students. 
+However, what is surprising is how _high_ the per-student consumption was; practically double than other types of students. What is also surprising is that not only do they have the largest variability, but also that the variability is as 
+large as it is, e.g. more than double that for Secondary schools!
+
+
+### Cost vs. Floor Area and Enrolments (by School Type)
+```{r}
+# Plot: Cost vs. Floor Area (by school type)
+ggplot(tbl1617, aes(y = Cost, x = Area, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  ggtitle("Cost vs. Total Floor Area", subtitle = "(by School Type)") +
+  xlab("Floor area (m2)") +
+  ylab("Dollars per annum") +
+  scale_color_brewer(palette = "Set1")+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+```
+
+
+### Cost vs. Enrolments (by school type)
+```{r}
+ggplot(tbl1617, aes(y = Cost, x = Enrol, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  ggtitle("Cost vs. Total Enrolments", subtitle = "(by School Type)") +
+  xlab("Enrolments") +
+  ylab("Dollars per annum") +
+  scale_color_brewer(palette = "Set1")+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+```
+
+
+
+### Cost per Floor Area Histogram 
+```{r}
+ggplot(tbl1617,aes(x=Cost_m2)) +
+  geom_histogram(binwidth = 0.3, 
+                 colour = "white",
+                 fill = "blue",
+                 alpha=0.7,
+                 aes(y = ..density..)) +
+  labs(title="Electricity Cost per Square Metre",
+       y="")+
+  coord_cartesian(xlim = c(0,17)) +
+  # overlay normal distribution curve
+  stat_function(fun = dnorm, colour = "red", 
+                args = list(mean = mean(tbl1617$Cost_m2, na.rm = TRUE),
+                            sd = sd(tbl1617$Cost_m2, na.rm = TRUE))) +
+  theme_minimal()+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank(),
+        plot.title = element_text(hjust=0.5),
+        panel.grid = element_blank())
+
+
+```
+
+
+
+#### Tables Related to Cost
+```{r echo = T, results = 'hide'}
+## Cost per Area by Type  
+tbl1617 %>%
+  dplyr::select(Cost_m2, Type) %>%
+  group_by(Type) %>%
+  summarise(Av_Cost_per_m2 = mean(Cost_m2),
+            Median_Cost_per_m2 = median(Cost_m2),
+            MAD = mad(Cost_m2, constant = 1)) %>%
+  arrange(desc(Av_Cost_per_m2))
+
+## Cost per Enrol by Type
+tbl1617 %>%
+  dplyr::select(Cost_Enrol, Type) %>%
+  group_by(Type) %>%
+  summarise(Av_Cost_per_Student = mean(Cost_Enrol),
+            Median_Cost_per_Student = median(Cost_Enrol),
+            MAD = mad(Cost_Enrol, constant = 1)) %>%
+  arrange(desc(Av_Cost_per_Student))
+
+```
+
+
+#### Observations for cost:
+Overall, the relationship between cost and floor area, and cost and enrolments follow a very similar pattern as per electricity consumption. The observations seen earlier with electricity consumption can be extrapolated here to electricity cost. This is not surprising given the very strong (close to perfect) relationship between consumption and cost.
+
+
+### Schools and Electricity by Geography
+
+#### Tables
+```{r echo = TRUE, results = 'hide'}
+# Crosstabulation: Count of Schools by School Type and Geography
+tbl1617%>%
+  tabyl(Type,Geography)%>%
+  adorn_totals(where = c("row","col"))%>%
+  adorn_percentages()%>%
+  adorn_pct_formatting()%>%
+  adorn_ns(position = "front")
+
+# Mean Electricity per SQM by Type and Geography
+tbl1617 %>%
+  group_by(Type, Geography) %>%
+  summarise(avg = round(mean(kWh_m2),2)) %>%
+  spread(Geography, avg, fill = 0)
+
+```
+
+
+#### Selected Plots
+```{r}
+# Plot: Schools Electricity by Type and Geography
+ggplot(tbl1617, aes(y = Elec, x = Type, colour = Geography)) +
+  geom_point( position = position_jitterdodge(), shape = 1) +
+  ggtitle("Schools' Annual Electricity (kWh per annum)",
+          subtitle = "by School Type and Geography") +
+  scale_color_brewer(palette = "Set1") +
+  xlab("") +
+  ylab("") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14, hjust = 0.5),
+        plot.subtitle = element_text(size = 10, hjust = 0.5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text.y = element_blank())
+
+# Plot: Electricity vs Floor Area by Geography
+ggplot(tbl1617, aes(y = Elec, x = Area, colour = Geography)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  ggtitle("Electricity vs. Total Floor Area", subtitle = "(by Geography)") +
+  xlab("Floor area (m2)") +
+  ylab("kilowatt hours per annum") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+# Electricity vs. Floor Area (by Geography) - Zoomed In
+ggplot(tbl1617, aes(y = Elec, x = Area, colour = Geography)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  coord_cartesian(xlim = c(0,10000) ) +
+  ggtitle("Electricity vs. Total Floor Area - Zoomed In", 
+          subtitle = "(by Geography)") +
+  xlab("Floor area (m2)") +
+  ylab("kilowatt hours per annum") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+
+# Plot: Electricity vs. Enrol (by Geography)
+ggplot(tbl1617, aes(y = Elec, x = Enrol, colour = Geography)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  ggtitle("Electricity vs. Total Enrolments", subtitle = "(by Geography)") +
+  xlab("Total Enrolments") +
+  ylab("kilowatt hours per annum") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = .5))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+
+
+
+# Plot:Electricity vs Area by Type:Geography - with Facets
+ggplot(data = tbl1617, aes(x = Area, y = Elec, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  facet_grid(Type ~ Geography) +
+  ggtitle("Electricity vs Floor Area",
+          subtitle = "School Type by Geography") +
+  scale_color_brewer(palette = "Set1")+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust =  0.5),
+        legend.position = "none",
+        panel.border = element_rect(colour = "black", fill = 0))+
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank())
+
+# Plot: Electricity vs Enrol by Type:Geography - with Facets
+
+ggplot(data = tbl1617, aes(x = Enrol, y = Elec, colour = Type)) +
+  geom_point(alpha = 0.4) +
+  facet_grid(Type ~ Geography) +
+  ggtitle("Electricity vs Enrolments",
+          subtitle = "School Type by Geography") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = "none")+
+  # Hide numbersSolar if showing plot publicly
+  theme(axis.text = element_blank())
+
+```
+
+
+
+### Solar
+#### Solar Summary Statistics: No Solar vs with Solar
+
+
+```{r echo = T, results = 'hide'}
+
+tbl1617%>%
+  mutate(Solar = fct_recode(Solar, "NoSolar"="0","Solar"="1"))%>%
+  tabyl(Type,Solar, show_missing_levels = F)%>%
+  adorn_totals(where = c("row","col"))%>%
+  adorn_percentages()%>%
+  adorn_pct_formatting()%>%
+  adorn_ns(position = "front")
+
+```
+#### Summary of Average kWh/m2: Solar vs No Solar
+```{r echo = T, results = 'hide'}
+tbl1617 %>%
+  group_by(Solar) %>%
+  summarise(Avg = round(mean(kWh_m2),2),
+            Std = round(sd(kWh_m2),2))
+
+```
+
+#### Plot: Histogram of Average kWh/m2: Solar vs No Solar
+```{r}
+Solarlabel <- as_labeller(c("0" = "No Solar", "1" = "Solar"))
+
+ggplot(tbl1617) + 
+  geom_histogram(aes(x = kWh_m2, y = ..density.., fill = Solar),
+                 binwidth = 2.8, colour = "white") +
+  scale_x_continuous(breaks = seq(0,50,5)) +
+  coord_cartesian(xlim = c(0,50)) +
+  facet_wrap(~Solar, nrow = 2, 
+             labeller = Solarlabel) +
+  scale_fill_brewer(palette = "Set1") +
+  ggtitle("Mean kWh/m2", subtitle = "by Solar Status") + 
+  ylab("")+
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    legend.position = 0,
+    axis.text = element_blank())+
+  # Hide numbersSolar if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+```
+
+
+#### Solar - Summary of Average kWh/Student: No Solar vs Solar
+```{r echo = T, results  = 'hide'}
+# Summary of Average kWh/Student: Solar vs No Solar
+tbl1617 %>%
+  group_by(Solar) %>%
+  summarise(Avg = round(mean(kWh_Enrol),2),
+            Std = round(sd(kWh_Enrol),2))
+
+```
+
+
+#### Histogram of Average kWh/Student: Solar vs No Solar
+```{r}
+ggplot(tbl1617, aes(x = kWh_Enrol, y = ..density.., fill = Solar)) +
+  geom_histogram(binwidth = 75, colour = "white") +
+  facet_wrap(~Solar, nrow = 2, labeller = Solarlabel) +
+  scale_fill_brewer(palette = "Set1") +
+  ylab(NULL) +
+  xlab("kWh per Student") +
+  coord_cartesian(xlim = c(0, 1500)) +
+  ggtitle("Mean kWh per Student", subtitle = "by Solar Status") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size  = 14),
+    axis.title.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.text.y = element_blank(),
+    legend.position = 0) +
+  # Hide numbersSolar if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+```
+
+
+#### Solar - Summary of Average kWh/m2: No Solar vs Solar, by School Type
+
+```{r echo = T, results = 'hide'}
+tbl1617 %>%
+  group_by(Type, Solar) %>%
+  summarise(avg = round(mean(kWh_m2),2)) %>%
+  spread(Solar, avg)
+
+```
+
+
+#### Density Plots: Consumption per Square Metre: No Solar vs Solar, by School Type
+```{r}
+ggplot(tbl1617) +
+  geom_density(aes(x = kWh_m2, fill = Type)) +
+  facet_grid(Solar ~ Type ,scales = "free", 
+             labeller = labeller(Solar = Solarlabel),
+             switch = "y") +
+  coord_cartesian(xlim = c(0,60)) +
+  ylab("") +
+  ggtitle("Electricity per SQM (kWh/m2): No Solar vs Solar", subtitle = "by School Type") + 
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1") +
+  theme(legend.position = 0,
+        axis.text.y = element_blank(),
+        plot.title = element_text(size = 14, hjust = 0.5),
+        plot.subtitle = element_text(size = 10, hjust = 0.5))+
+  # Hide numbersSolar if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
+
+```
+
+
+End of exploratory analysis; prepare for model building. Due to very small numbers exclude Language schools from the tibble to be used for model creation:
+
+```{r}
+# Small Sample of Language Schools, remove from analysis
+tblExLang <- tbl1617 %>%
+   filter(Type != "Language") %>%
+   mutate(Area.c = Area - mean(Area)) # Mean-centre Area
+
+tblExLang <- droplevels(tblExLang) # drop Language schools from dataframe
+
+```
+
+
+
