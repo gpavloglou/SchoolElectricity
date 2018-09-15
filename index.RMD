@@ -1,7 +1,7 @@
 ---
 title: "School Electricity Analysis"
 author: "George Pavloglou"
-date: "xx September 2018"
+date: "September 2018"
 output:
     html_document:
     fig_height: 7
@@ -859,7 +859,8 @@ ggplot(tbl1617, aes(y = Elec, x = Area, colour = Type)) +
   theme(plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = .5))+
   # Hide numbers if showing plot publicly
-  theme(axis.text = element_blank())
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
 
 
 # Electricity vs. Floor Area (by school type) - Zoomed In
@@ -877,7 +878,8 @@ ggplot(tbl1617, aes(y = Elec, x = Area, colour = Type)) +
   theme(plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = .5))+
   # Hide numbers if showing plot publicly
-  theme(axis.text = element_blank())
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
 
 # Electricity vs. Floor Area (by school type) - Facetted
 ggplot(tbl1617, aes(y = Elec, x = Area, colour = Type)) +
@@ -910,7 +912,8 @@ ggplot(subset(tbl1617, Type %in% c("Language", "Primary")), aes(y = Elec, x = Ar
   theme(plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = .5))+
   # Hide numbers if showing plot publicly
-  theme(axis.text = element_blank())
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
 
 # Electricity vs. Floor Area - Primary Schools by Geography
 ggplot(data = tbl1617[tbl1617$Type=="Primary",], 
@@ -925,7 +928,8 @@ ggplot(data = tbl1617[tbl1617$Type=="Primary",],
   theme(plot.title = element_text(size = 16, hjust =0.5),
         plot.subtitle = element_text(size = 10, hjust = 0.5))+
   # Hide numbers if showing plot publicly
-  theme(axis.text = element_blank())
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
 
 ```
 
@@ -1219,11 +1223,13 @@ ggplot(tbl1617, aes(y = Elec, x = Type, colour = Geography)) +
   scale_color_brewer(palette = "Set1") +
   xlab("") +
   ylab("") +
+  scale_colour_calc() +
   theme_minimal() +
   theme(plot.title = element_text(size = 14, hjust = 0.5),
         plot.subtitle = element_text(size = 10, hjust = 0.5))+
   # Hide numbers if showing plot publicly
-  theme(axis.text.y = element_blank())
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank())
 
 # Plot: Electricity vs Floor Area by Geography
 ggplot(tbl1617, aes(y = Elec, x = Area, colour = Geography)) +
@@ -1232,11 +1238,13 @@ ggplot(tbl1617, aes(y = Elec, x = Area, colour = Geography)) +
   ggtitle("Electricity vs. Total Floor Area", subtitle = "(by Geography)") +
   xlab("Floor area (m2)") +
   ylab("kilowatt hours per annum") +
+  scale_colour_calc() +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = .5))+
   # Hide numbers if showing plot publicly
-  theme(axis.text = element_blank())
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
 
 # Electricity vs. Floor Area (by Geography) - Zoomed In
 ggplot(tbl1617, aes(y = Elec, x = Area, colour = Geography)) +
@@ -1247,11 +1255,13 @@ ggplot(tbl1617, aes(y = Elec, x = Area, colour = Geography)) +
           subtitle = "(by Geography)") +
   xlab("Floor area (m2)") +
   ylab("kilowatt hours per annum") +
+  scale_colour_calc() +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = .5))+
   # Hide numbers if showing plot publicly
-  theme(axis.text = element_blank())
+  theme(axis.text = element_blank(), 
+        panel.grid = element_blank())
 
 
 # Plot: Electricity vs. Enrol (by Geography)
@@ -1261,13 +1271,13 @@ ggplot(tbl1617, aes(y = Elec, x = Enrol, colour = Geography)) +
   ggtitle("Electricity vs. Total Enrolments", subtitle = "(by Geography)") +
   xlab("Total Enrolments") +
   ylab("kilowatt hours per annum") +
+  scale_colour_calc() +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = .5))+
   # Hide numbers if showing plot publicly
-  theme(axis.text = element_blank())
-
-
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank())
 
 
 # Plot:Electricity vs Area by Type:Geography - with Facets
@@ -1280,10 +1290,11 @@ ggplot(data = tbl1617, aes(x = Area, y = Elec, colour = Type)) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust =  0.5),
-        legend.position = "none",
-        panel.border = element_rect(colour = "black", fill = 0))+
+        legend.position = "none")+
   # Hide numbers if showing plot publicly
-  theme(axis.text = element_blank())
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_rect(colour = "black",fill=0))
 
 # Plot: Electricity vs Enrol by Type:Geography - with Facets
 
@@ -1292,12 +1303,15 @@ ggplot(data = tbl1617, aes(x = Enrol, y = Elec, colour = Type)) +
   facet_grid(Type ~ Geography) +
   ggtitle("Electricity vs Enrolments",
           subtitle = "School Type by Geography") +
+  scale_colour_calc() +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5),
-        plot.subtitle = element_text(hjust = 0.5),
+   theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust =  0.5),
         legend.position = "none")+
-  # Hide numbersSolar if showing plot publicly
-  theme(axis.text = element_blank())
+  # Hide numbers if showing plot publicly
+  theme(axis.text = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_rect(colour = "black",fill=0))
 
 ```
 
