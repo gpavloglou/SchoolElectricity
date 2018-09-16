@@ -15,6 +15,9 @@ library(knitr)
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 ```
+_(Review the [README](https://github.com/gpavloglou/SchoolElectricity/blob/gh-pages/README.md) for background information on this project)_
+
+
 # Scoping Population of Study
 
 1) Schools for which electricity data was aggregated for the 2017-18 business plan
