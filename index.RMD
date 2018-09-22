@@ -465,22 +465,22 @@ rcrd.update <- c(3,5,6,15,18,19) # columns to update
 
 
 # Update Observation 1123
-tbl1617[1123,rcrd.update] <- c(xxxxx,xxxxx,xxxxxx,xxxxxx/xxxx,xxxxx/xxxxxx,xxxxxx/xxxxx)
+tbl1617[1123,rcrd.update] <- c(532850.26,23.67,85256.04,532850.26/794.6,85256.04/22513.5,85256.04/794.6)
 # View(tbl1617[1123,])    
 
 # Update Observation 894
-tbl1617[894,rcrd.update] <- c(xxxxx,xxxxx,xxxxxx,xxxxxx/xxxx,xxxxx/xxxxxx,xxxxxx/xxxxx)
+tbl1617[894,rcrd.update] <- c(611060.35,33.36,116101.5,611060.35/2038.3,116101.5/18318.96,116101.5/2038.3)
 #View(tbl1617[894,])
 
 # Update Observation 262
 rcrd.update1 <-  c(rcrd.update,7)
-tbl1617[262,rcrd.update1] <- c(xxxxx,xxxxx,xxxxxx,xxxxxx/xxxx,xxxxx/xxxxxx,xxxxxx/xxxxx)
+tbl1617[262,rcrd.update1] <- c(510056.64,42.3,86709.63,510056.64/510.6,86709.63/12058.64,86709.63/510.6,0.17)
 
 #View(tbl1617[262,])  
 
 # Update Observation 72
 #View(tbl1617[72,])
-tbl1617[72,rcrd.update1] <- c(xxxxx,xxxxx,xxxxxx,xxxxxx/xxxx,xxxxx/xxxxxx,xxxxxx/xxxxx)
+tbl1617[72,rcrd.update1] <- c(384959.50,14.71,69292.71,384959.50/1065.975,69292.71/26161.08,69292.71/1065.975,0.18)
 
 
 
