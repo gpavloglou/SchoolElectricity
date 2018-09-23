@@ -1452,5 +1452,770 @@ tblExLang <- droplevels(tblExLang) # drop Language schools from dataframe
 
 ```
 
+# Model Creation
+_(Added 23 Sep 2018)_
+
+## Model Type: Ordinary Least Squares
+__Model Building Methodology:__ Backwards Elimination Starting From Original Full Model a0
+
+__Process:__ order of variable elimination based on:
+  * smallest impact observed from prior analyses; and/or
+  * smallest level of statistical significance in existing model.
+  
+Final decision on whether to accept or reject variable elimination based on a combination of:
+  * statistical indicators e.g. AIC and BIC, root mean square error (RMSE), adjusted R^2^, Ramsey RESET etc; and
+  * information that would reasonably be sought when wanting to understand the factors impacting on school electricity consumption.
+  
+Note that the explanatory variables chosen are the ones that were seen in prior exploratory analysis to have a significant impact on electricity consumption. Explanatory variables excluded are those that are either not relevant (e.g. cost) or were seen to have no sigficant impact in prior analysis.
+  
+### Create Root Mean Square Error (RMSE) function
+
+```{r}
+rmse <- function(x){
+  sqrt(mean(x$residuals^2))
+}
+
+```
+
+As the square root of a variance, RMSE can be interpreted as the standard deviation of the unexplained variance, and has the useful property of being in the same units as the response variable. Lower values of RMSE indicate better fit. RMSE is a good measure of how accurately the model predicts the response.
+
+### Original Full Model:
+
+```{r echo=TRUE, results='hide'}
+a0 <- lm(Elec~Area + Enrol + Solar + Type + Geography + BCA, data=tblExLang)
+summ(a0,robust = T, center = T, vifs=T)
+rmse(a0)
+
+```
+
+### 'a-Set' Models: Removal of Variables
+#### Removing One Variable
+```{r echo=T, results='hide'}
+a1.1 <- lm(Elec~Area + Enrol + Solar + Type + Geography, data=tblExLang)
+summ(a1.1,center = T, robust = T, vifs=T)
+
+a1.2 <- lm(Elec~Area + Enrol + Solar + Type + BCA, data=tblExLang)
+summ(a1.2,center = T, robust = T, vifs=T)
+
+a1.3 <- lm(Elec~Area + Solar + Type + Geography + BCA, data=tblExLang)
+summ(a1.3,center = T, robust = T, vifs=T)
+
+a1.4 <- lm(Elec~Enrol + Solar + Type + Geography + BCA, data=tblExLang)
+summ(a1.4,center = T, robust = T, vifs=T)
+
+# Group models
+a1.models <- list(a0, a1.1, a1.2, a1.3, a1.4)
+
+# Find RMSE
+sapply(a1.models,rmse)
+
+# Use Akaike Information Criteria and Bayesian information criterion
+sapply(a1.models, AIC) # AIC values
+sapply(a1.models, BIC) # BIC values
+
+```
+
+AIC and BIC both prefer model a1.1, which excludes Building Code of Australia (BCA) Climate Zone. However it would be reasonable to expect for a model (or other research) of electricity consumption to explore the impact of climate. The other variables are also expected to be of business interest. However, Area and Enrol are strongly correlated (r^2^=0.82), therefore likely to be high multicollinearity (indicated by VIFs). If one of these variables were to be eliminated, then it would be Enrol, since Area has a stronger linear correlation with total Electricity consumption (r^2^ = 0.90) than Enrol (r^2^ = 0.82). Also prefer a1.3 over a1.4 going by Adj. R^2^ and AIC/BIC. So model of choice is a1.3 over a0.
+
+#### Eliminate Two Variables (including Enrol)
+```{r echo=T, results='hide'}
+# Eliminate BCA
+a2.1 <- lm(Elec~Area+Type+Solar+Geography,data=tblExLang)
+summ(a2.1,center = T,robust = T,vifs = T)
+
+# Compare RMSE with a1.3
+sapply(list(a1.3, a2.1),rmse)
+
+# Compare AIC and BIC
+sapply(list(a1.3, a2.1),AIC)
+sapply(list(a1.3, a2.1),BIC)
+
+```
+
+In terms of overall predictive ability and parsimony, a2.1 is preferred over a1.3 (note: a2.1 is nested within a1.3).
+
+#### Eliminate Geography
+```{r echo=T, results='hide'}
+
+a3.1 <- lm(Elec~Area+Type+Solar,data=tblExLang)
+summ(a3.1,center = T,robust = T,vifs = T)
+rmse(a3.1)
+# Compare a3.1, a2.1, and a1.3:
+# (Note: all three have Adj. R² = 0.84)
+AIC(a3.1, a2.1, a1.3)
+BIC(a3.1, a2.1, a1.3)
+
+```
+
+Model 3.1 has the highest AIC/BIC score, while a2.1 has lowest AIC/BIC score. This indicates further variable elimination would lead to further information loss. It also implies that Geography is important for predictive performance and that Climate Zone (at least in terms of separately comparing Zone 4 and Zone 7 with Zone 6) adds no further explanatory power to a model of this simple functional form.
+
+Thus out of these 'a-Set' models, model a2.1 is the most preferred i.e. lm(Elec~Area+Type+Solar+Geography,data=tblExLang).
+
+#### Test of Model Assumptions
+
+```{r}
+avPlots(a2.1) 
+# The plot Elec|other vs Area|others shows linearity
+
+par(mfrow = c(2,2))
+plot(a2.1)
+```
+
+Plot shows evidence of heteroscedaticity as given by the Residuals vs Fitted and Standardised Residuals vs Fitted plots. This implies less efficient OLS estimators (i.e
+a larger sample size is required for OLS estimators to converge to the true value). It
+also means the variance of the OLS estimators may be both biased an inconsistent. In practice it means that the variance, and therefore standard errors of the estimators are substantially underestimated. This  implies a need for heteroscedasticity-consistent standard errors. 
+
+The Residuals vs Leverage plot shows a number of high leverage observations. However,
+there is insuffficient evidence they have any undue influence on the model (as given by Cook's distance lines).  
+
+The Normal Q-Q plot implies a reasonably symmetrical bell curve, but one with thin tails. This can be confirmed via plot below:
+
+```{r}
+augment(a2.1)%>%
+  ggplot(aes(x=.resid)) + 
+  geom_histogram(aes(y=..density..),
+                 binwidth = 10000,
+                 colour="white", fill="#2b8cbe") +
+  stat_function(fun = dnorm,
+                args = list(mean=mean(augment(a2.1)$.resid,na.rm=TRUE),
+                            sd=sd(augment(a2.1)$.resid,na.rm=TRUE)),
+                col="red") +
+  labs(title="Model a2.1 Distribution of Residuals",
+       subtitle="against Normal Distribution (Red Curve)")+
+  coord_cartesian(xlim = c(-3e+5,3e+5))+
+  theme(plot.subtitle = element_text(hjust=0.5),
+        plot.caption = element_text(hjust=0.5))
+```
+
+
+While the distribution of residuals is leptokurtic (thin-tailed) it seems to be 'normal enough' to assume Normality assumption is met.
+
+**Note:** Model a2.1 with robust std errors and centred continuous predictor Area:
+```{r echo=T, results='hide'}
+a2.1r <- lm_robust(Elec~Area.c+Type+Solar+Geography,data=tblExLang,
+                   se_type = "HC3")
+
+summary(a2.1r)
+
+```
+
+#### Testing of Functional Form: Ramsey RESET test
+##### Using reset() function
+```{r}
+reset(a2.1)
+# Reject H0 that there is no model misspecification
+# i.e conclude model is misspecified
+
+```
+
+
+#### Manual Calculation Using Wald Test with F-Distribution
+```{r}
+# 1) Tidy the lm object
+a2.1_tidy <- augment(a2.1)
+# head(a2.1_tidy)
+
+# 2) Create nested model with y-hat^2 and y-hat^3
+a2.1nst <- lm(Elec~Area+Type+Solar+Geography+I(.fitted^2)+I(.fitted^3),
+              data=a2.1_tidy)
+
+# 3) Perform waldtest
+# This tests the following Hypothesis: I(.fitted^2) = 0 and I(.fitted^3 = 0)
+# Set test = "F" to compute F-statistic with F-distribution
+
+waldtest(a2.1nst,a2.1)
+waldtest(a2.1nst,a2.1, test="F")
+
+```
+
+Reject H0 that there is no model misspecification i.e conclude model is misspecified.
+
+#### RESET Test - with Heteroskedasticity-Robust F statistic
+__(Also called heteroskedasticity-robust Wald statistic)__
+
+Use the vcov = vcovHC argument to estimate a Heteroskedasticity-Consistent covariance matrix.
+
+```{r}
+reset(a2.1,vcov = vcovHC)
+
+waldtest(a2.1nst,a2.1,vcov = vcovHC)
+
+
+```
+
+Even with Heteroskedasticity-Consistent covariance matrix still reject H0. Therefore conclude model is still misspecified.
+
+### 'b-Set' Models: Involves interaction between Area and (School) Type
+Prior analysis has shown interaction between floor area and school type with respect to electricity consumption:
+
+```{r}
+tblExLang%>%
+  ggplot(aes(x=Area,y=Elec,colour=Type))+
+  geom_point(size=0.6, alpha=0.6)+
+  geom_smooth(method="lm", se=F,fullrange=T)+
+  scale_color_few()+
+  coord_cartesian(xlim=c(0,15000),ylim=c(0,500000))+
+ facet_wrap(~Geography)+
+  labs(title="Annual Electricity Consumption:\nInspecting for Interaction between School Type and Floor Area",
+       caption="Visual inspection provides evidence of potential interaction between Area and School Type, as shown by the differing\nslopes for each line.")+
+  theme(plot.caption=element_text(hjust=0)) +
+  # remove figures if showing publicly
+  theme(axis.text=element_blank())
+
+```
+
+#### Interaction Term, with BCA in Model:
+```{r echo=TRUE, results='hide'}
+b1.1 <- lm(Elec~Area.c*Type+Solar+Geography+BCA,data=tblExLang)
+summ(b1.1,robust=T,vifs=T)
+rmse(b1.1)
+
+```
+
+#### Interaction Term, without BCA:
+```{r echo=TRUE, results='hide'}
+# Without BCA:
+b1.2 <- lm(Elec~Area.c*Type+Solar+Geography,data=tblExLang)
+summ(b1.2, robust=T, vifs=T)
+rmse(b1.2)
+```
+
+#### Testing AIC and BIC
+
+```{r}
+AIC(b1.1, b1.2)
+BIC(b1.1, b1.2)
+```
+
+Given these AIC/BIC results,the fact that both models have an adj. R² of 0.84, it seems that BCA is superfluous and therefore can be removed. Nonetheless it is reasonable to want to know what effect climate zone has on energy use so there's also an argument for leaving in BCA.
+
+However note the very high vifs for Area, Type, and (especially) the Area:Type interactions. This might indicate potential multicollinearity problems for these variables, although further investigation is required to see if an issue actually exists. If multicollinearity is severe enough it can significantly increase the variance (and therefore standard errors) of the coefficient estimates and make the estimates very sensitive to minor changes in the model. The result is that the coefficient estimates are unstable and difficult to interpret. Seeing if there multicollinearity is causing a problem in the model can be performed with techniques like ridge regression.
+
+#### Test of Functional Form - Ramsey RESET Test (b-set models)
+__Using Heteroskedasticity-Robust F statistic__
+
+```{r}
+reset(b1.1, vcov = vcovHC)
+reset(b1.2, vcov = vcovHC)
+```
+
+Based on this result model b1.2 deemed to have a correct functional form,
+but not much more so than b1.1. However b1.1 seems to have slightly better predictive ability than b1.2 as given by root mean square error. For the sake of choosing just one model b1.2 (without BCA) is preferred over b1.1 (with BCA).
+
+### Model Creation: "c-Set" - Interaction between Geography and BCA
+Previous analysis of geography and climate zone concluded that assessing the 
+effects of climate needs to be performed at a level that takes into account
+local variations. This conclusion was supported by an interaction between
+BCA Zone and Geography.
+
+```{r echo=T, results='hide'}
+c1.1 <- lm(Elec~Area+Type+Solar+Geography*BCA,data=tblExLang)
+summ(c1.1, robust=T, center=T, vifs=F)
+```
+
+_"Error in stop_wrap("VIFs cannot be calculated because there are aliased coefficients in the model.") : VIFs cannot be calculated because there are aliased coefficients in the model."_
+
+Note the error message regarding aliased coefficients, and the NAs for the GeographyRural:BCAZone_4 interaction.
+
+Further investigation shows linear dependence on BCAZone_4 and GeographyRegional:BCAZone_4.
+```{r}
+alias(c1.1)
+```
+
+This is not surprising since there are no Urban/metropolitan schools in Climate Zone 4
+(Climate Zone 4 mostly covers NW Victoria). The coefficient for BCAZone_4, which is practically zero, is also evidence of this. This has resulted in 'singularity' or perfect multicollinearity, which has lead to unstable results.
+
+Try creating a new Climate Zone variable with different coding of levels:
+
+```{r echo=T, results='hide'}
+# Create new variable using data from existing BCA variable:
+tblExLang$Zones4Or7 <- tblExLang$BCA
+# Recode variables such that the reference level is *not* Zone 4 or Zone 7 
+levels(tblExLang$Zones4Or7) <- list("0" = "Zone_6", "1" = c("Zone_4","Zone_7"))
+
+# Create new model
+c1.2 <- lm(Elec~Area+Type+Solar+Geography*Zones4Or7,data=tblExLang)
+summ(c1.2, center=T, robust=T, vifs=T)
+```
+
+Here we've combined Zones 4 and 7 into one level (to represent *not* Zone 6), and this has resolved the singularity issue.
+
+#### Test of Functional Form - Ramsey RESET Test
+```{r}
+reset(c1.2, vcov=vcovHC)
+```
+
+Model c1.2 seems to be impacted by misspecification.
+
+### Model Creation: "d-Set" - Create Model with Area:Type and Geography:BCA Interactions
+```{r echo=T, results='hide'}
+
+d1.1 <- lm(Elec~Area*Type+Solar+Geography*Zones4Or7,data=tblExLang)
+summ(d1.1, robust=T, center=T, vifs=T)
+```
+
+#### Ramsey RESET
+```{r}
+reset(d1.1, vcov=vcovHC)
+```
+
+Reject H0 no model misspecification. Current preferred model still b1.2.
+
+### Model Creation: "e-Set" - Create model with Area:Type interaction and include Zone4or7
+
+```{r echo=TRUE, results='hide'}
+e1.1 <- lm(Elec~Area*Type+Solar+Geography+Zones4Or7,data=tblExLang)
+summ(e1.1, robust=T,center=T,vifs=T)
+```
+
+#### Test of Functional Form - Ramsey RESET
+```{r}
+reset(e1.1,vcov=vcovHC)
+```
+
+Reject H0 of no misspecification (Model b1.2 still our preferred model)
+
+### Model Creation: "f-Set" - Create Model with Area:Type and Area:Solar Interactions
+
+#### Create model with 3-way interaction (f1.1)
+```{r echo=T, results='hide'}
+
+f1.1 <- lm(Elec~Area.c*Type*Solar+Geography, data=tblExLang)
+summ(f1.1, robust=T, vifs=T)
+
+```
+
+Insufficient evidence of a three-way interaction, and therefore cannot justify building such a (complex) model. Note that non-signficance of t-values may be due to high multicollinearity (as presented by vif figures).
+
+#### Interactions between Area:Type and Area:Solar
+Prior analysis has found an interaction between Solar and Area so incorporate here.
+```{r echo=T, results='hide'}
+f2.1 <- lm(Elec~Area.c*(Type+Solar)+Geography, data=tblExLang)
+summ(f2.1,robust = T, vifs=T)
+# Alternative version of f2.1
+# f2.1.1 <- lm_robust(Elec~Area.c*(Type+Solar)+Geography, data=tblExLang, 
+#                     se_type = "HC3")
+
+```
+
+Area and Solar interaction meets the default criterion for statistically significant coefficients (p<0.05). Furthermore prior exploratory analysis has found an interaction between
+Solar use and floor area, and conceptually it makes sense for this relationship to be present (i.e. having solar lowers kWh/m2 consumption).So keep this interaction, and assess model further.
+
+#### Test of Functional Form - Ramsey RESET Test (f2.1)
+```{r}
+reset(f2.1, vcov = vcovHC)
+```
+
+Cannot reject H0 of no misspecification (at p = 0.05)
+
+#### Compare Model f2.1 and Model b1.2
+
+```{r}
+# Akaike and Bayesian-Schwartz Information Criteria
+AIC(f2.1, b1.2)
+BIC(f2.1, b1.2)
+
+# Root Mean Square Error
+sapply(list(f2.1, b1.2), rmse)
+
+
+
+```
+
+Both AIC and BIC favour model f2.1. Also f2.1 has Adj R^2^ = 0.85, which is 
+slightly higher than for b1.2 (Adj R^2^ = 0.84), but also has lower root mean square error.
+
+So model f2.1 is preferred over b1.2.
+
+##### Testing Model Assumptions for Model f2.1
+```{r}
+avPlots(f2.1) 
+```
+
+The plot 'Elec|others vs Area.c|others' shows linearity 
+
+
+```{r}
+par(mfrow = c(2,2))
+plot(f2.1)
+
+```
+
+Plot shows evidence of heteroscedaticity as given by the Residuals vs Fitted and Standardised Residuals vs Fitted plots. This implies less efficient OLS estimators (i.e a larger sample size is required for OLS estimators to converge to the true value). It  also means the variance of the OLS estimators may be both biased an inconsistent. In practice it means that the variance, and therefore standard errors of the estimators are substantially underestimated. This  implies a need for heteroscedasticity-consistent standard errors. 
+
+The Residuals vs Leverage plot shows a number of high leverage observations. However,there is insuffficient evidence they have any undue influence on the model (as given by Cook's distance lines).  
+
+The Normal Q-Q plot implies a reasonably symmetrical bell curve, but one with thin tails. This can be confirmed via plot below:
+
+```{r}
+augment(f2.1)%>%
+  ggplot(aes(x=.resid)) + 
+  geom_histogram(aes(y=..density..),
+                 binwidth = 15000,
+                 colour="white", fill="#2b8cbe") +
+  stat_function(fun = dnorm,
+                args = list(mean=mean(augment(f2.1)$.resid,na.rm=TRUE),
+                            sd=sd(augment(f2.1)$.resid,na.rm=TRUE)),
+                col="red") +
+  labs(title="Model f2.1 Distribution of Residuals",
+       subtitle="against Normal Distribution (Red Curve)")+
+  coord_cartesian(xlim = c(-3e+5,3e+5))+
+  theme(plot.subtitle = element_text(hjust=0.5),
+        plot.caption = element_text(hjust=0.5))
+```
+
+The distribution is leptokurtic (thin-tailed) but it seems to be 'normal enough' to assume Normality assumption is met.
+
+#### Create Model f3.1: Elec~Area*(Type+Solar)
+
+Model f3.1 is a simplified variation of f2.1 where we are only interested in three  variables: School Type; Area; and Solar Usage. Here we want to simplify assessments without having to consider other intricacies like whether schools are in urban, regional, or rural localities. The aim is to be able to make general statements about electricity consumption with respect to variables of greatest business interest.
+
+```{r echo=T, results='hide'}
+f3.1 <- lm(Elec~Area.c*(Type+Solar), data=tblExLang) 
+summ(f3.1,robust = T, vifs=T)
+```
+
+Area.c:Type interaction not statistically significant.This may be due to high multicollinearity between interacting terms and the main effects). Or it may be due to removing Geography as a factor Area.c:Solar interaction still statistically signficant. 
+
+#### Ramsey RESET test (heteroscedasticity-robust)
+```{r}
+reset(f3.1, vcov=vcovHC)
+```
+
+Result: this rejects H0 of no model misspecification, i.e. test rejects that this is a correctly specified linear model. In other words there are non-linear combinations of the fitted values that help explain the response variable (Electricity consumption).
+
+In this case, we'll explicitly declare that we are working with explicit approximations of a 'true' model, but argue that we can still derive defensible analyses and insights. We can do this by invoking the work of Berk et. al (2017): [Berk, R., Brown, L., Buja, A. et al. J Quant Criminol (2017)](https://doi.org/10.1007/s10940-017-9348-7)
+
+##### Testing Model Assumptions for Model f3.1
+```{r}
+avPlots(f3.1) 
+# The plot Elec|others vs Area.c|others shows linearity
+
+
+par(mfrow=c(2,2))
+plot(f3.1)
+# Same conclusions as per previous models.
+```
+
+The Normal Q-Q plot implies a reasonably symmetrical bell curve, but one with thin tails. This can be confirmed via plot below:
+
+```{r}
+augment(f3.1)%>%
+  ggplot(aes(x=.resid)) + 
+  geom_histogram(aes(y=..density..),
+                 binwidth = 15000,
+                 colour="white", fill="#2b8cbe") +
+  stat_function(fun = dnorm,
+                args = list(mean=mean(augment(f2.1)$.resid,na.rm=TRUE),
+                            sd=sd(augment(f2.1)$.resid,na.rm=TRUE)),
+                col="red") +
+  labs(title="Model f3.1 Distribution of Residuals",
+       subtitle="against Normal Distribution (Red Curve)")+
+  coord_cartesian(xlim = c(-3e+5,3e+5))+
+  theme(plot.subtitle = element_text(hjust=0.5),
+        plot.caption = element_text(hjust=0.5))
+```
+
+Distribution seems to be 'normal enough' to assume Normality assumption is met.
+
+
+##### lm_robust version of f3.1:
+
+```{r}
+f3.1.1 <- lm_robust(Elec~Area.c*(Type+Solar), data=tblExLang, 
+                    se_type = "HC3")
+
+
+#summary(f3.1.1)
+
+```
+
+#### Calculate Predicted Values based on Model f3.1.1: SET #1
+__Assumptions:__
+ * Floor area for each School Type is the estimated mean portfolio area (i.e x,xxx m2); and
+ * Geography not taken into account.
+
+__Create data separate dataframe__ where the (mean-centred) floor area for the entire portfolio is assumed to be the same across all school types:
+
+```{r}
+df.1 <- data.frame(Area = rep(mean(tblExLang$Area)),
+                   Area.c = rep(mean(tblExLang$Area.c)),
+                   Type = factor(c(rep("Primary",2),
+                                   rep("Secondary",2),
+                                   rep("PriSec",2),
+                                   rep("Special",2)),
+                                 levels=c("Primary","Secondary","PriSec","Special")),
+                   Solar = factor(rep(c("0","1"),1)))
+```
+
+
+__Generate predictions__ based on Model f3.1.1 using df.1:
+```{r}
+f3.1.1_pred <- predict(f3.1.1, newdata = df.1,interval = "confidence")
+df.pred <- cbind(df.1, f3.1.1_pred) # combine data frame and predicted values
+```
+
+__Create table with columns showing:__
+* Mean Floor Area
+* School type
+* Predicted electricity by schools with no solar
+* Predicted electricity by schools with Solar
+* Difference in predicted electricity no solar vs solar
+* % difference in predicted electricity
+
+```{r echo=T, results='hide'}
+df.pred%>%
+  dplyr::select(-c(2,6:7))%>%
+  mutate(Solar=recode_factor(Solar,`0`= "NoSolar",`1` = "Solar"))%>%
+  group_by(Type,Solar)%>%
+  spread(Solar,fit.fit)%>%
+  mutate(Diff=Solar-NoSolar,
+         Pct=Solar/NoSolar-1)%>%
+  arrange(Pct)%>%
+  mutate(Pct = paste(
+    round(Pct*100,1),"%")
+    )
+
+```
+
+#### Calculate Predicted Values based on Model f3.1.1: SET # 2
+__Assumption:__ Floor area for each School Type is the estimated mean area by each School Type
+
+**Get mean Area and mean centred Area** by school Type:
+```{r}
+Pri.AvM2 <- tapply(tblExLang$Area,tblExLang$Type,mean)[1]
+Sec.AvM2 <- tapply(tblExLang$Area,tblExLang$Type,mean)[2]
+PriSec.AvM2 <- tapply(tblExLang$Area,tblExLang$Type,mean)[3]
+Spec.AvM2 <- tapply(tblExLang$Area,tblExLang$Type,mean)[4]
+
+Pri.AvM2.c <- tapply(tblExLang$Area.c,tblExLang$Type,mean)[1]
+Sec.AvM2.c <- tapply(tblExLang$Area.c,tblExLang$Type,mean)[2]
+PriSec.AvM2.c <- tapply(tblExLang$Area.c,tblExLang$Type,mean)[3]
+Spec.AvM2.c <- tapply(tblExLang$Area.c,tblExLang$Type,mean)[4]  
+
+```
+
+**Create data separate dataframe** where the (mean-centred) floor area is assumed to be the mean floor area by each school type:
+```{r}
+df.2 <- data.frame(
+  Area = c(rep(Pri.AvM2,2),
+           rep(Sec.AvM2,2),
+           rep(PriSec.AvM2,2),
+           rep(Spec.AvM2,2)),
+  Area.c = c(rep(Pri.AvM2.c,2),
+             rep(Sec.AvM2.c,2),
+             rep(PriSec.AvM2.c,2),
+             rep(Spec.AvM2.c,2)),
+  Type = factor(c(rep("Primary",2),
+                  rep("Secondary",2),
+                  rep("PriSec",2),
+                  rep("Special",2)),
+                levels=c("Primary","Secondary","PriSec","Special")),
+  Solar = factor(rep(c("0","1"),2)))
+
+```
+
+**Generate predictions based on Model f3.1.1 using df.2:**
+```{r}
+f3.1.1_pred2 <- predict(f3.1.1, newdata = df.2,interval = "confidence")
+df.2.pred <- cbind(df.2, f3.1.1_pred2)   # combine data frame and predicted values
+```
+
+__Create table with columns showing:__
+* Mean Floor Area
+* School type
+* Predicted electricity by schools with no solar
+* Predicted electricity by schools with Solar
+* Difference in predicted electricity no solar vs solar
+* % difference in predicted electricity
+
+```{r echo=T, results='hide'}
+df.2.pred%>%
+  mutate(Solar=recode_factor(Solar,`0`="NoSolar",`1`="Solar"))%>%
+  dplyr::select(-c(2,6:7))%>%
+  group_by(Type,Solar)%>%
+  spread(Solar,fit.fit)%>%
+  mutate(Diff=Solar-NoSolar,
+         Pct=round(Diff/NoSolar*100,0))%>%
+  arrange(Pct)%>%
+  mutate(Pct=paste(Pct,"%"))
+
+
+```
+
+__Summary:__
+* Expect between xx% to xx% decrease with Solar, depending on School Type and assuming no distinction between Urban vs Regional vs Rural schools.
+* Primary schools seem to benefit the most with Solar, followed by Pri/Sec, Secondary and Special
+
+#### Generate Column Plot based on predictions using data from df.2:
+
+```{r}
+df.2.pred%>%
+  dplyr::select(-2) %>%
+  mutate(Solar = recode_factor(Solar,`0`= "NoSolar",`1`="Solar"))%>%
+  group_by(Type, Solar)%>%
+  summarise(pred.fit=round(mean(fit.fit/1000),0))%>%
+  mutate(End=lag(pred.fit),
+         Diff=End-pred.fit,
+         Pct=paste(round(Diff/End*100,0),"%"),
+         xpos=1:n()-0.5)%>% 
+  ggplot(aes(x=Solar,y=pred.fit,fill=Solar))+
+  geom_col(position="dodge", alpha=0.6)+
+  facet_wrap(~Type,scales="free") + 
+  # hide figures if showing plot publicly
+  # stat_summary(fun.y = 'mean',
+  #              aes(label=scales::comma(..y..)), geom="text",
+  #              vjust=1.5)+
+  geom_segment(aes(x=xpos,y=End,xend=xpos,yend=pred.fit)) + 
+  # hide segment figures if showing plot publicly  
+  # geom_text(aes(x=xpos,y=End-Diff/2,label=Pct),hjust=-0.2,size=4)+
+  scale_y_continuous(label=scales::comma)+
+  scale_fill_tableau()+
+  labs(title="Predicted Annual Electricity Consumption*",
+       subtitle="By School Type and Solar Usage Status",
+       y="Annual Consumption\nMegawatt Hours per Annum (MWh p.a.)",
+       x="Solar Usage Status",
+       caption="Predicted annual consumption assumes the following average (mean) floor area according to school type: Primary, x,xxx m2; \nSecondary, xx,xxx m2; PriSec, xx,xxx m2; and Special, x,xxx m2.\n*Predictions based on regression analysis of 2016-17 electricity consumption data for 1,xxx schools.\nOne megawatt hour (MWh) = 1,000 kilowatt hours.")+
+  theme(text=element_text(size=14),
+        plot.subtitle = element_text(hjust=0.5),
+        plot.caption = element_text(hjust=0),
+        legend.position=0)  + # hide numbers if showing publicly
+  theme(axis.text = element_blank())
+```
+
+#### Simple Slopes Analysis:
+
+__ Store Simple Slope Analysis output:__
+```{r}
+smpl.slp <- sim_slopes(
+  lm(Elec~Area*(Type+Solar),data=tblExLang),
+  pred=Area,
+  modx = Type,
+  mod2 = Solar,
+  centered="Area",
+  robust=TRUE
+  #  cond.int=TRUE,
+  #  confint=TRUE
+) 
+```
+
+__Construct table of Simple Slope Analysis:__
+```{r}
+Type <- smpl.slp$slopes[[1]][,1]
+Est.NoSolar <- smpl.slp$slopes[[1]][,2]
+Est.NoSolar.LB <- smpl.slp$slopes[[1]][,4]
+Est.NoSolar.UB <- smpl.slp$slopes[[1]][,5]
+Est.Solar <- smpl.slp$slopes[[2]][,2]
+Est.Solar.LB <- smpl.slp$slopes[[2]][,4]
+Est.Solar.UB <- smpl.slp$slopes[[2]][,5]
+
+df.smpl.slp <- cbind.data.frame(
+  Type,Est.NoSolar,
+  Est.NoSolar.LB, 
+  Est.NoSolar.UB,
+  Est.Solar,
+  Est.Solar.LB,
+  Est.Solar.UB) 
+
+# Inspect class of each column:
+sapply(df.smpl.slp[1:7], class)
+
+```
+
+All columns are currently a factor. Convert 2nd column onwards into numeric, round to 2 decimal places:
+```{r}
+for(i in 2:ncol(df.smpl.slp))
+  { 
+  df.smpl.slp[,i] <- round(
+    as.double(
+      # convert factors to character before turning to numeric
+      as.character(df.smpl.slp[,i])),2)
+  }
+
+
+# Re-inspect class of each column:
+sapply(df.smpl.slp[1:7], class)
+
+```
+
+Directly compare Estimated Average Rate of consumption per square metre (kWh/m2) across School Type and Solar Usage:
+
+```{r echo=T, results='hide'}
+df.smpl.slp%>%
+  dplyr::select(c(1:2,5))%>%
+  # sort highest to lowest kWh/m2
+  arrange(-Est.NoSolar)%>%
+  mutate(Diff=Est.Solar-Est.NoSolar,
+         Pct=paste(round(Diff/Est.NoSolar,3)*100,"%"))
+
+```
+
+#### Produce Visual Representation of Model f3.1.1
+
+```{r}
+# Combine original dataframe with predicted values generated by Model f3.1.1
+f3.1.1_pred_3 <-cbind(tblExLang,
+  predict(f3.1.1, # f3.1.1 is lm_robust object
+  newdata=tblExLang,se.fit=T,interval="confidence"))
+
+# Save Mean Floor Area by School Type:
+MeanM2 <- f3.1.1_pred_3%>%
+  group_by(Type)%>%
+  summarise(MnM2=mean(Area),
+            MinY=min(fit.fit/1000))
+
+# geom_text x and y coordinate multipliers:
+xcmult <- 1.15
+ycmult <- 1.2
+
+# Produce plot using above objects:
+f3.1.1_pred_3%>%
+  mutate(Solar=recode_factor(Solar,`0`="NoSolar",`1`="Solar"))%>%
+  ggplot(aes(x=Area,y=Elec/1000,colour=Solar))+
+  geom_point(size=0.8)+
+  geom_smooth(aes(x=Area,y=fit.fit/1000),
+              method="lm",
+              fullrange=F,
+              se=F)+
+  geom_ribbon(aes(ymin=fit.lwr/1000,ymax=fit.upr/1000,fill=Solar),
+              alpha=0.1,
+              colour=NA)+
+  scale_x_continuous(label=scales::comma)+
+  scale_y_continuous(label=scales::comma)+
+  labs(title="Estimated Annual School Electricity Consumption",
+       subtitle="By School Type & Solar Status",
+       y="Electricity Consumption\nMegawatt Hours per Annum (MWh p.a.)",
+       x="Total Floor Area (m2)",
+       caption="This is a visual representation of estimated annual school electricity consumption based on regression analysis that considers floor area, school type, and whether\nor not solar is used. The points represent observed consumption over the 2016-17 period across 1,xxx Primary, Secondary, Pri/Sec and Special schools, while \nthe lines give expected values of consumption as predicted by regression modelling. The shaded bands around the lines represent how confident we can be in the\ncalculated estimates i.e. narrower bands indicate greater certainty about estimated consumption for a given size of floor area.")+
+  facet_wrap(~Type,scales="free")+
+  geom_vline(data=MeanM2,aes(group=Type,xintercept=MnM2),
+             linetype="dotted",
+             color="blue")+
+  geom_text(data=MeanM2,
+            aes(x=MnM2*xcmult,
+                y=MinY*ycmult,
+                # hide numbers if showing plot publicly:
+                # label=paste("Mean area =",
+                #         scales::comma(round(MnM2,0)),"m2")
+                
+                label=paste("Mean area = xx,xxx m2")),
+            inherit.aes = F,
+            colour="blue",
+            size=4,
+            hjust=-0.01)+
+  scale_color_colorblind()+
+  theme(text=element_text(size=14),
+        plot.subtitle = element_text(hjust=0.5),
+        plot.caption = element_text(hjust=0.0, size=10)
+        #        axis.text = element_text(size=11),
+        #        axis.title = element_text(size=11)
+  ) + 
+  # hide axis numbers if showing publicly
+  theme(axis.text = element_blank())
+
+
+
+
+```
 
 
