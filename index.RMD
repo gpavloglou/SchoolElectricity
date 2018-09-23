@@ -1722,8 +1722,7 @@ Further investigation shows linear dependence on BCAZone_4 and GeographyRegional
 alias(c1.1)
 ```
 
-This is not surprising since there are no Urban/metropolitan schools in Climate Zone 4
-(Climate Zone 4 mostly covers NW Victoria). The coefficient for BCAZone_4, which is practically zero, is also evidence of this. This has resulted in 'singularity' or perfect multicollinearity, which has lead to unstable results.
+This is not surprising since there are no Urban/metropolitan schools in Climate Zone 4. The coefficient for BCAZone_4, which is practically zero, is also evidence of this. This has resulted in 'singularity' or perfect multicollinearity, which has lead to unstable results.
 
 Try creating a new Climate Zone variable with different coding of levels:
 
@@ -2166,7 +2165,7 @@ MeanM2 <- f3.1.1_pred_3%>%
 
 # geom_text x and y coordinate multipliers:
 xcmult <- 1.15
-ycmult <- 1.2
+ycmult <- 1.8
 
 # Produce plot using above objects:
 f3.1.1_pred_3%>%
@@ -2186,7 +2185,7 @@ f3.1.1_pred_3%>%
        subtitle="By School Type & Solar Status",
        y="Electricity Consumption\nMegawatt Hours per Annum (MWh p.a.)",
        x="Total Floor Area (m2)",
-       caption="This is a visual representation of estimated annual school electricity consumption based on regression analysis that considers floor area, school type, and whether\nor not solar is used. The points represent observed consumption over the 2016-17 period across 1,xxx Primary, Secondary, Pri/Sec and Special schools, while \nthe lines give expected values of consumption as predicted by regression modelling. The shaded bands around the lines represent how confident we can be in the\ncalculated estimates i.e. narrower bands indicate greater certainty about estimated consumption for a given size of floor area.")+
+       caption="This is a visual representation of estimated annual school electricity consumption based on regression analysis that considers floor area, school type, and whether\nor not solar is used. The points represent observed consumption over the 2016-17 period across xxxx Primary,\nSecondary, Pri/Sec and Special schools, while the lines give expected values of consumption as predicted by\nregression modelling. The shaded bands around the lines represent how confident we can be in the calculated\nestimates i.e. narrower bands indicate greater certainty about estimated consumption for a given size of floor area.")+
   facet_wrap(~Type,scales="free")+
   geom_vline(data=MeanM2,aes(group=Type,xintercept=MnM2),
              linetype="dotted",
@@ -2201,12 +2200,12 @@ f3.1.1_pred_3%>%
                 label=paste("Mean area = xx,xxx m2")),
             inherit.aes = F,
             colour="blue",
-            size=4,
+            size=3,
             hjust=-0.01)+
   scale_color_colorblind()+
   theme(text=element_text(size=14),
         plot.subtitle = element_text(hjust=0.5),
-        plot.caption = element_text(hjust=0.0, size=10)
+        plot.caption = element_text(hjust=0.0, size=9)
         #        axis.text = element_text(size=11),
         #        axis.title = element_text(size=11)
   ) + 

@@ -286,8 +286,7 @@ Further investigation shows linear dependence on BCAZone_4 and GeographyRegional
 alias(c1.1)
 ```
 
-This is not surprising since there are no Urban/metropolitan schools in Climate Zone 4
-(Climate Zone 4 mostly covers NW Victoria). The coefficient for BCAZone_4, which is practically zero, is also evidence of this. This has resulted in 'singularity' or perfect multicollinearity, which has lead to unstable results.
+This is not surprising since there are no Urban/metropolitan schools in Climate Zone 4. The coefficient for BCAZone_4, which is practically zero, is also evidence of this. This has resulted in 'singularity' or perfect multicollinearity, which has lead to unstable results.
 
 Try creating a new Climate Zone variable with different coding of levels:
 
@@ -770,7 +769,7 @@ f3.1.1_pred_3%>%
   scale_color_colorblind()+
   theme(text=element_text(size=14),
         plot.subtitle = element_text(hjust=0.5),
-        plot.caption = element_text(hjust=0.0, size=10)
+        plot.caption = element_text(hjust=0.0, size=9)
         #        axis.text = element_text(size=11),
         #        axis.title = element_text(size=11)
   ) + 
