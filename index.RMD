@@ -28,11 +28,11 @@ _(Review the [README](https://github.com/gpavloglou/SchoolElectricity/blob/gh-pa
     e.	Include school type (e.g. 'Primary', 'Secondary', 'Special', etc)
     
 
-2)	Indicate whether on SWEP Electricity. If on SWEP, then must be indicated as having had sensors installed for at least 12 months (**already confirmed in creation of dataset**).
+2)	Indicate whether on xxxxxx Electricity Program. If on xxxx Electricity Program, then must be indicated as having had sensors installed for at least 12 months (**already confirmed in creation of dataset**).
 
 3)	Indicate whether schools were confirmed to have used solar during period (**already confirmed in creation of dataset**). Note: schools indicated as having solar were confirmed as having used solar at least once during period based on whether there was a feed-in tariff payment identified in their billing.
 
-4)	Indicate if they were Resource Smart Schools. But they must have been on this program for all 12 months (**already confirmed in creation of dataset**).
+4)	Indicate if they were xxxxxx Schools. But they must have been on this program for all 12 months (**already confirmed in creation of dataset**).
 
 # Import, Inspect and Clean Data
 ## Import Data
