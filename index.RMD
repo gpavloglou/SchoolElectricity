@@ -1722,7 +1722,7 @@ Further investigation shows linear dependence on BCAZone_4 and GeographyRegional
 alias(c1.1)
 ```
 
-This is not surprising since there are no Urban/metropolitan schools in Climate Zone 4. The coefficient for BCAZone_4, which is practically zero, is also evidence of this. This has resulted in 'singularity' or perfect multicollinearity, which has lead to unstable results.
+This is not surprising since there are no Urban/metropolitan schools in Climate Zone 4. The coefficient for BCAZone_4, which is practically zero, is also evidence of this. This has resulted in 'singularity' or perfect multicollinearity, which led to unstable results.
 
 Try creating a new Climate Zone variable with different coding of levels:
 
@@ -1830,6 +1830,7 @@ So model f2.1 is preferred over b1.2.
 ```{r}
 avPlots(f2.1) 
 ```
+
 
 The plot 'Elec|others vs Area.c|others' shows linearity 
 
@@ -2043,8 +2044,9 @@ df.2.pred%>%
 ```
 
 __Summary:__
-* Expect between xx% to xx% decrease with Solar, depending on School Type and assuming no distinction between Urban vs Regional vs Rural schools.
-* Primary schools seem to benefit the most with Solar, followed by Pri/Sec, Secondary and Special
+
+  * Expect between xx% to xx% decrease with Solar, depending on School Type and assuming no distinction between Urban vs Regional vs Rural schools.
+  * Primary schools seem to benefit the most with Solar, followed by Pri/Sec, Secondary and Special.
 
 #### Generate Column Plot based on predictions using data from df.2:
 
@@ -2084,7 +2086,7 @@ df.2.pred%>%
 
 #### Simple Slopes Analysis:
 
-__ Store Simple Slope Analysis output:__
+__Store Simple Slope Analysis output:__
 ```{r}
 smpl.slp <- sim_slopes(
   lm(Elec~Area*(Type+Solar),data=tblExLang),
