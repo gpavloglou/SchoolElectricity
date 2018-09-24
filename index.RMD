@@ -1603,7 +1603,7 @@ summary(a2.1r)
 ##### Using reset() function
 ```{r}
 reset(a2.1)
-# Reject H0 that there is no model misspecification
+# Reject H~0~ that there is no model misspecification
 # i.e conclude model is misspecified
 
 ```
@@ -1628,7 +1628,7 @@ waldtest(a2.1nst,a2.1, test="F")
 
 ```
 
-Reject H0 that there is no model misspecification i.e conclude model is misspecified.
+Reject H~0~ that there is no model misspecification i.e conclude model is misspecified.
 
 #### RESET Test - with Heteroskedasticity-Robust F statistic
 __(Also called heteroskedasticity-robust Wald statistic)__
@@ -1643,7 +1643,7 @@ waldtest(a2.1nst,a2.1,vcov = vcovHC)
 
 ```
 
-Even with Heteroskedasticity-Consistent covariance matrix still reject H0. Therefore conclude model is still misspecified.
+Even with Heteroskedasticity-Consistent covariance matrix still reject H~0~. Therefore conclude model is still misspecified.
 
 ### 'b-Set' Models: Involves interaction between Area and (School) Type
 Prior analysis has shown interaction between floor area and school type with respect to electricity consumption:
@@ -1758,7 +1758,7 @@ summ(d1.1, robust=T, center=T, vifs=T)
 reset(d1.1, vcov=vcovHC)
 ```
 
-Reject H0 no model misspecification. Current preferred model still b1.2.
+Reject H~0~ no model misspecification. Current preferred model still b1.2.
 
 ### Model Creation: "e-Set" - Create model with Area:Type interaction and include Zone4or7
 
@@ -1772,7 +1772,7 @@ summ(e1.1, robust=T,center=T,vifs=T)
 reset(e1.1,vcov=vcovHC)
 ```
 
-Reject H0 of no misspecification (Model b1.2 still our preferred model)
+Reject H~0~ of no misspecification (Model b1.2 still our preferred model)
 
 ### Model Creation: "f-Set" - Create Model with Area:Type and Area:Solar Interactions
 
@@ -1805,7 +1805,7 @@ Solar use and floor area, and conceptually it makes sense for this relationship 
 reset(f2.1, vcov = vcovHC)
 ```
 
-Cannot reject H0 of no misspecification (at p = 0.05)
+Cannot reject H~0~ of no misspecification (at p = 0.05)
 
 #### Compare Model f2.1 and Model b1.2
 
@@ -1882,7 +1882,7 @@ Area.c:Type interaction not statistically significant.This may be due to high mu
 reset(f3.1, vcov=vcovHC)
 ```
 
-Result: this rejects H0 of no model misspecification, i.e. test rejects that this is a correctly specified linear model. In other words there are non-linear combinations of the fitted values that help explain the response variable (Electricity consumption).
+Result: this rejects H~0~ of no model misspecification, i.e. test rejects that this is a correctly specified linear model. In other words there are non-linear combinations of the fitted values that help explain the response variable (Electricity consumption).
 
 In this case, we'll explicitly declare that we are working with explicit approximations of a 'true' model, but argue that we can still derive defensible analyses and insights. We can do this by invoking the work of Berk et. al (2017): [Berk, R., Brown, L., Buja, A. et al. J Quant Criminol (2017)](https://doi.org/10.1007/s10940-017-9348-7)
 
