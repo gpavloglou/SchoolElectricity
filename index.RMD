@@ -15,7 +15,7 @@ library(knitr)
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 ```
-_(Review the [README](https://github.com/gpavloglou/SchoolElectricity/blob/gh-pages/README.md) for background information on this project)_
+_(View the [README](https://github.com/gpavloglou/SchoolElectricity/blob/gh-pages/README.md) for background information on this project)_
 
 
 # Scoping Population of Study
@@ -1456,13 +1456,21 @@ tblExLang <- droplevels(tblExLang) # drop Language schools from dataframe
 _(Added 23 Sep 2018)_
 
 ## Model Type: Ordinary Least Squares
-__Model Building Methodology:__ Backwards Elimination Starting From Original Full Model a0
+__Model Building Methodology:__ Backwards Elimination Starting From Original Full Model a0:
 
+***
+\[Elec = {\beta_0}~+{\beta_1}Area~+{\beta_2}Enrol~+{\beta_3}Type~+{\beta_4}Geography~+{\beta_5BCAZone}~+{\beta_6}Solar~+{\epsilon},\]
+
+<center><font size ="2">where _BCAZone_ is the Building Code of Australia Climate Zone, and $\epsilon$ is the disturbance (or error) term representing other factors affecting electricity consumption.</font></center>
+
+***
 __Process:__ order of variable elimination based on:
+
   * smallest impact observed from prior analyses; and/or
   * smallest level of statistical significance in existing model.
   
 Final decision on whether to accept or reject variable elimination based on a combination of:
+
   * statistical indicators e.g. AIC and BIC, root mean square error (RMSE), adjusted R^2^, Ramsey RESET etc; and
   * information that would reasonably be sought when wanting to understand the factors impacting on school electricity consumption.
   
@@ -1482,7 +1490,7 @@ As the square root of a variance, RMSE can be interpreted as the standard deviat
 ### Original Full Model:
 
 ```{r echo=TRUE, results='hide'}
-a0 <- lm(Elec~Area + Enrol + Solar + Type + Geography + BCA, data=tblExLang)
+a0 <- lm(Elec~Area + Enrol + Type + Geography + BCA + Solar, data=tblExLang)
 summ(a0,robust = T, center = T, vifs=T)
 rmse(a0)
 
@@ -1866,9 +1874,27 @@ augment(f2.1)%>%
 
 The distribution is leptokurtic (thin-tailed) but it seems to be 'normal enough' to assume Normality assumption is met.
 
-#### Create Model f3.1: Elec~Area*(Type+Solar)
+#### Chosen Default Model
+Given the above statistical diagnostic indicator for model f2.1, we will choose this as the default to further model school electricity consumption. The Chosen Default Model can thus be summarised as the following linear function:
 
-Model f3.1 is a simplified variation of f2.1 where we are only interested in three  variables: School Type; Area; and Solar Usage. Here we want to simplify assessments without having to consider other intricacies like whether schools are in urban, regional, or rural localities. The aim is to be able to make general statements about electricity consumption with respect to variables of greatest business interest.
+***
+\[Elec = {\beta_0}~+{\beta_1}Area_c~+{\beta_2}Type~+{\beta_3}Solar~+{\beta_4}Geography~+{\beta_5}Area_c.Type~+{\beta_6}Area_c.Solar~+{\epsilon},\]
+
+<center><font size="2"> where *Area~c~* is mean-centred floor area, and $\beta_0$ is the expected electricity consumption of a school with an average-sized floor area. </font></center>
+
+***
+Note that floor area is mean-centred to ensure measurement against the average-sized school floor area, which will help with model interpretation. Furthermore, the base group is urban primary schools that do not use solar PV. This is the benchmark group against which all other comparisons are made. 
+
+#### Create Alternative Model f3.1: _Elec ~ f(Area, Type, Solar)_
+
+Model f3.1 is a simplified variation of f2.1 where we are only interested in three  variables, School Type, Area, and Solar PV usage:
+
+***
+\[Elec = {\beta_0}~+{\beta_1}Area_c~+{\beta_2}Type~+{\beta_3}Solar~+{\beta_4}Area_c.Type~+{\beta_5}Area_c.Solar~+{\epsilon}\]
+
+***
+
+Here we want to simplify assessments without having to consider other intricacies like whether schools are in urban, regional, or rural localities. The aim is to be able to make general statements about electricity consumption with respect to variables of greatest business interest.
 
 ```{r echo=T, results='hide'}
 f3.1 <- lm(Elec~Area.c*(Type+Solar), data=tblExLang) 
@@ -1877,7 +1903,7 @@ summ(f3.1,robust = T, vifs=T)
 
 Area.c:Type interaction not statistically significant.This may be due to high multicollinearity between interacting terms and the main effects). Or it may be due to removing Geography as a factor Area.c:Solar interaction still statistically signficant. 
 
-#### Ramsey RESET test (heteroscedasticity-robust)
+##### Ramsey RESET test (heteroscedasticity-robust)
 ```{r}
 reset(f3.1, vcov=vcovHC)
 ```
@@ -2218,5 +2244,507 @@ f3.1.1_pred_3%>%
 
 
 ```
+
+
+## Ridge Regression
+
+Ridge Regression is a technique for analysing multiple regression data impacted by multicollinearity. When multicollinearity occurs, ordinary least squares (OLS) estimates are unbiased, but their variances are large, so they may be far from the true value. Coefficients for correlated features/variables become over-inflated and can also fluctuate significantly (and even change sign). One consequence of these large fluctuations in the coefficient terms is overfitting, which means we have high variance. However by adding a degree of bias to the regression estimates, we can sometimes find a model that has a lower mean squared error (MSE) than an unbiased OLS model (the bias-variance trade-off). 
+
+Ridge regression uses a shrinkage (hyper) parameter (or 'ridge constant'), typically called lambda ($\lambda$), to add some bias to the coefficient estimates. A $\lambda$ = 0 corresponds to the original OLS estimator. The larger the value of $\lambda$, the more the coefficient shrinks towards zero. In principal, with the right choice of $\lambda$, we can get an estimator with a better (smaller) mean squared error. The estimate is not unbiased, but what we gain in bias we make up for in smaller variance.
+
+The assumptions of ridge regression are the same as OLS e.g. linearity, independence of residuals, and equal variances. However, the assumption of normality of residuals is not required.
+
+__Note:__ the 'ridge' in ridge regression refers to the diagonal of ones (1s) in the correlation matrix of the predictor variables, which can be likened to a ridge. Ridge regression proceeds by adding a degree of bias ($\lambda$) to this so-called ridge.
+
+### Create Ridge Model using the `MASS::lm.ridge()` function
+__Objective:__ find the value of lambda that minimises the Mean Square Error (i.e. by minimising the Residual Sum of Squares). Use the `MASS::lm.ridge()` function to find the value optimal value of lambda. Since we don't know what the value of lambda should be, try running a sequence of values, and look through that series of values to find the best one.
+
+#### Create Estimator
+```{r}
+# 1) Create sequence of lambda:
+     lmda.seq1 <- 10^seq(-2,1,length=100)
+
+# 2) Fit model using lambda sequence:
+     f2.1_r1 <- lm.ridge(Elec~Area.c*(Type+Solar)+Geography,
+                    data=tblExLang,lambda = lmda.seq1)
+     
+# 3) Store results of model as a data.frame using broom::tidy()
+     f2.1_r1_td <- tidy(f2.1_r1)
+
+```
+
+#### Produce Trace Plot of Lambda against Coefficient Values
+A trace plot is a visualisation of coefficient values as a function of shrinkage parameter (lambda). 
+
+```{r}
+ggplot(data=f2.1_r1_td,
+       aes(x=lambda,y=estimate,colour=term))+
+  geom_line()+
+  labs(title="Trace Plot: Lambda vs Coefficient Values",
+       y="Coefficient Values",
+       x=expression("lambda"~"("*lambda*")"))+
+  guides(color=guide_legend(title="Variables"))+
+  scale_color_calc()+
+  # hide numbers if showing publicly
+  theme(axis.text.y = element_blank(),
+        legend.text = element_text(size=9),
+        legend.title = element_text(size = 12))
+
+```
+
+Note the relative stability of coefficients for values of lambda between 0 and 10. However as lambda approaches infinity the value of the coefficients converge toward zero. This is demonstrated by the following trace plot using large values of lambda:
+
+
+```{r}
+# Produce sequence with large values of lambda:
+  lmda.seq1.1 <- 10^seq(-2,4,length=100)
+
+# Fit model using lambda sequence:
+  f2.1_r1.1 <- lm.ridge(Elec~Area.c*(Type+Solar)+Geography,
+                    data=tblExLang,lambda = lmda.seq1.1)
+     
+# Store results of model as a data.frame:
+  f2.1_r1.1_td <- tidy(f2.1_r1.1)
+     
+# Produce Plot:
+  ggplot(data= f2.1_r1.1_td,
+         aes(x=lambda, y=estimate,colour=term))+
+    geom_line()+
+      labs(title="Trace Plot: Large Values of Lambda vs Coefficient Values",
+           y="Coefficient Values",
+           x=expression("lambda"~"("*lambda*")"),
+           caption="As lambda approaches infinity, coefficient values converge toward zero.")+
+  guides(color=guide_legend(title="Variables"))+
+  scale_color_calc()+
+  # hide numbers if showing publicly
+  theme(axis.text.y = element_blank(),
+        legend.text = element_text(size=9),
+        legend.title = element_text(size = 12),
+        plot.caption = element_text(size = 9))
+     
+     
+
+```
+
+#### Find the Optimal Value of Lambda that Minimises the Mean Squared Error of the Model
+
+```{r}
+
+GCV_min <- min(f2.1_r1$GCV)
+lambda_opt <- f2.1_r1$lambda[which.min(f2.1_r1$GCV)]
+
+# Plot using ggplot:
+ggplot(data=f2.1_r1_td,
+       aes(x=lambda,y=GCV))+
+  geom_line()+
+  geom_vline(xintercept = lambda_opt, colour="red",lty="dashed")+
+  labs(title = "Generalised Cross Validation (GCV)",
+       x=expression("lambda"~"("*lambda*")") 
+       )+
+  annotate(geom="text",x=lambda_opt*2.6, y=min(GCV_min), 
+           label=paste("Optimal lambda =",round(lambda_opt,2)),
+           colour="red")
+
+
+
+```
+
+#### Run the Ridge Model Again Using $\lambda$ = $\lambda$~optimal~
+
+##### Run the ridge regression model again using optimal value of $\lambda$ 
+```{r echo=T, results='hide'}
+# Run the model using optimal lambda:
+f2.1_r1.2 <- lm.ridge(Elec~Area.c*(Type+Solar)+Geography,
+                    data=tblExLang,lambda = lambda_opt)
+# Store results:
+f2.1_r1.2_td <- tidy(f2.1_r1.2)
+
+```
+
+##### Compare Coefficients of Ridge model vs OLS model:
+```{r echo=T, results='hide'}
+# Compare coefficients of ridge vs ols:
+cbind("ridge" = round(coef(f2.1_r1.2),2),"ols" = round(coef(f2.1),2))
+
+```
+
+##### Compare Mean Square Error of Ridge vs OLS
+__Note:__ No easy way to extract MSE from object of class "ridgelm" (such as from `MASS::lm.ridge()`). Therefore will need to do this by hand using matrix computation.
+
+```{r}
+#### Step 1: Extract and set up relevant data matrices
+
+  # Extract relevant variables from original dataset tblExLang:
+    dataRidge <- tblExLang%>%
+        dplyr::select(Elec,Area.c,Type,Solar,Geography)
+  
+  # Store the f2.1 specification as an object of class = "formula":
+    f1 <- as.formula(Elec~Area.c*(Type+Solar)+Geography)
+  
+  # Vector of Response Variable (y) values:
+    y1 <- dataRidge$Elec
+  
+  # Matrix of Predictor Variable (x) values:
+    x1 <- model.matrix(f1,dataRidge)[,-1]  # Note: [-1] removes the first column (the intercept) from the model matrix
+
+#### Step 2: Calculate predicted (pred.rdg) responses using the model matrix (x1) and the coefficents from the Ridge model (f2.1_r1.2)
+
+pred.rdg <- as.matrix(cbind(const=1,x1)) %*% coef(f2.1_r1.2)  # %*% for matrix multiplication
+
+#### Step 3: Calculate Mean Squared Error for Ridge Model
+MSE.rdg <- mean((pred.rdg - y1)^2)
+
+#### Step 4: Repeat Steps 2 and 3 for OLS model f2.1
+pred.ols <- as.matrix(cbind(const=1,x1)) %*% coef(f2.1)
+MSE.ols <- mean((pred.ols - y1)^2)
+
+  # Check that calculated MSE.ols = MSE for original lm() object
+  cbind(MSE.ols,mean(f2.1$residuals^2))
+
+#### Step 5: Compare MSE.rdg with MSE.ols
+
+list(Compare_MSE = cbind("MSE.rdg" = MSE.rdg, "MSE.ols" = MSE.ols),
+     `MSE.rdg_<_MSE.ols?` = MSE.rdg < MSE.ols,
+     Percent_diff = scales::percent(MSE.rdg/MSE.ols-1)
+     )  
+ 
+```
+
+##### Compare R^2^ of Ridge and OLS
+```{r}
+# R-squared for Ridge
+sst <- sum((y1 - mean(y1))^2)
+sse.rdg <- sum((pred.rdg - y1)^2)
+rsq.rdg <-  1 - sse.rdg/sst
+
+# R-squared for OLS
+sse.ols<- sum((pred.ols - y1)^2)
+rsq.ols <-  1 - sse.ols/sst
+
+# Compare R-Squared
+cbind("RSQ.rdg" = rsq.rdg,
+      "RSQ.ols" = rsq.ols)
+
+```
+
+Coefficients of the ridge regression are similar to the OLS model. The first trace plot also showed that the coefficients are fairly stable against increasing bias, and it would take a lot of bias (i.e. high values of $\lambda$) to create unstable OLS estimates. Therefore we can conclude that the multicollinearity present in the OLS model is not problematic. Furthermore, the Ridge model did not improve the OLS model as shown by the neglibible difference in MSE. This outcome, combined with practically the same R^2^ $\approx$ 0.85 implies that the original least squares model already had sound predictive ability.
+
+
+### Ridge Regression with `glmnet` Package
+
+#### Load `glmnet` and Select Variables
+```{r}
+# Load glmnet Package
+library(glmnet)
+
+# Select relevant variables from the original tbl, save as new tbl:
+dataRidge <- tblExLang%>%
+  dplyr::select(Elec,Area.c,Type,Solar,Geography)
+
+
+```
+
+#### Create Formula, Vector of Response Variable (y) Values, and Matrix of Predictor Variable (x) Values
+```{r}
+# Formula:
+f1 <- as.formula(Elec~Area.c*(Type+Solar)+Geography)
+
+# Vector of Response Variable (y) values:
+y1 <- dataRidge$Elec
+
+# Matrix of Predictor Variable (x) values:
+x1 <- model.matrix(f1,dataRidge)[,-1]  # Note: [-1] removes the first column (the intercept) from the model matrix
+
+```
+
+__Note:__ `model.matrix()` creates a design matrix and transforms categorical variable to dummy variables.
+
+#### Commence Cross-Validation
+Cross Validation is used to assess the predictive performance of the models and and to judge how they perform outside the sample to a new data set also known as 'test' data.
+
+The motivation for cross-validation is that when we fit a model, we are fitting it to a 'training' dataset. Without cross-validation we only have information on how does our model perform to our *in-sample* data. Ideally we would like to see how the model performs in terms of prediction accuracy when we have a new data. 
+
+##### Create Training and Testing Datasets
+Here, we will perform a random 50/50 split of the data into two separate training and testing datasets.
+
+```{r}
+# Step 1. Create a 'random selector vector' for randomly choosing half the predictor variable values from the model matrix (x1):
+
+train <- sample(1:nrow(x1),         # out of n rows from the model matrix...
+                nrow(x1)/2)         # randomly select n/2 rows.
+
+
+# Step 2. Split data into training and test sets
+x1.train <- x1[train,]
+x1.test <- x1[-train,]
+y1.train <- y1[train]
+y1.test <- y1[-train]
+
+# Note: see [6.6: Ridge Regression and the Lasso](http://www.science.smith.edu/~jcrouser/SDS293/labs/lab10-r.html#6.6.1-Ridge-Regression) for alternative method of splitting data using dplyr::sample_frac()
+
+```
+
+#### Generate Sequence of Lambda ($\lambda$)
+Ridge regression involves tuning a hyperparameter, $\lambda$. glmnet() will generate default values for you. Alternatively, it is common practice to define your own with a `lambda =` argument:
+```{r}
+# Generate a descending sequence of 100 lambda values:
+lambda_seq <- 10^seq(3,-3,length=100)
+```
+
+#### Call ridge regression based on training dataset, using the descending lambda sequence
+
+Use `glmnet::glmnet()`, with alpha = 0 to conduct ridge regression.
+```{r}
+# Call ridge regression based on training dataset, using the descending lambda sequence:
+rdg.train <- glmnet(x=x1.train,y=y1.train,alpha=0,lambda = lambda_seq)
+
+# Confirm number of models created:
+dim(coef(rdg.train)) 
+```
+
+100 models with different lambda values created, each with 12 coefficients (including the intercept).
+
+#### Produce Trace Plot of Log Lambda vs Coefficient Values
+
+**Note:** `glmnet::glmnet()` uses a log scale for $\lambda$, and will show in the plot below.
+```{r}
+rdg.train_tidy <- broom::tidy(rdg.train)
+
+ggplot(data=rdg.train_tidy,
+       aes(x=lambda, y=estimate, colour=term)) +
+  geom_line()+
+  labs(title="Trace Plot: Log Lambda vs Coefficient Values",
+       y="Coefficient Values",
+       x=expression("log("*lambda*")"))+
+  guides(color=guide_legend(title="Variables"))+
+  scale_color_calc()+
+  # hide numbers if showing publicly
+  theme(axis.text.y = element_blank(),
+        legend.text = element_text(size=9),
+        legend.title = element_text(size = 12))
+
+
+```
+
+#### Perform k-fold Cross-Validation Ridge Regression using `glmnet::cv.glmnet()` Function
+Lambda ($\lambda$) is a tuning parameter that helps to control our model from over-fitting to the training data. However, to identify the optimal $\lambda$ value we need to perform cross-validation. `cv.glmnet` provides a built-in option to perform __*k*-fold cross-validation__, and by default, performs 10-fold cross-validation. 
+
+*k*-fold cross-validation involves randomly dividing the data into *k* groups (aka folds) of approximately equal size. The first fold is treated as a validation set, and the statistical method is fit on the remaining data. The mean squared error, *MSE*~1~ is then computed on the observations in the held-out fold. This procedure is repeated *k* times; each time, a different group of observations is treated as the validation set. This process results in *k* estimates of the test error, *MSE*~1~,*MSE*~2~,...*MSE*~*k*~. Thus, the *k*-fold cross-validation (CV) estimate is computed by averaging these values:
+
+\[CV_{(k)} = \frac{1}{k}\displaystyle\sum_{i=1}^{k}MSE_{i}\]
+
+Again, the optimal log($\lambda$) is obtained using cross-validation by minimising the mean squared error of a prediction:
+```{r}
+# Run k-fold cross-validation regression (note that k = 10 by default)
+rdg.cv <- cv.glmnet(x1.train, y1.train, alpha=0)
+
+# Extract optimal (log)lambda
+opt_lambda <- rdg.cv$lambda.min
+
+( loglambda.opt <- log(opt_lambda)  )
+
+```
+
+
+#### Plot Results using `glmnet::plot.cv.glmnet()` Function
+This will produce a **cross-validation curve** (red dotted line), as well upper and lower standard deviation curves along the $\lambda$ sequence (error bars). The figures along the top are simply the number of (non-zero) coefficients (excluding the intercept) for each value of $\lambda$.
+
+```{r}
+plot.cv.glmnet(rdg.cv)
+title(main="Cross-Validation Error Plot (10-Fold)",outer=TRUE, line=-2)
+```
+
+
+The vertical dotted lines reflect two common choices for values of $\lambda$:
+
+* The smallest value is log($\lambda$~min~), which gives minimum mean cross-validated error; this is saved as `loglambda.opt`.
+* The other value is log($\lambda$~1se~), and is the largest value that is within one standard error of log($\lambda$~min~).
+
+In this context we'll continue with the ridge regression modelling by using log($\lambda$~min~).
+
+***
+__Side note:__ Having two  $\lambda$ values is generally used in the context of *LASSO* (Least Absolute Shrinkage and Selection Operator) regression. In ridge regression, while the coefficients *converge* toward zero as $\lambda \to \infty$, they never reach zero. However, in LASSO regression, coefficients *do* fall to zero given high enough values of $\lambda$, which is why lasso can be used as a method of parameter selection. 
+
+One reason for using $\lambda$~1se~ in LASSO regression is to hedge against overfitting by selecting a larger $\lambda$ than the minimum. The error at $\lambda$~min~ is the average of the errors over the *k* folds and hence this *estimate* of the error is uncertain. $\lambda$~1se~ represents the value that results in a simpler model (i.e. less parameters), but which has an error within 1 standard error of the best model. In othe words, using $\lambda$~1se~ results in a slightly simpler model, but one that cannot be distinguished from the best model in terms of error (given the uncertainty in the *k*-fold CV error estimate of the best model). 
+
+***
+
+#### Generate New Ridge Predictions Against Test Data using Optimal $\lambda$
+Apply the original Ridge training model (`rdg.train`) against new predictor (x) values saved in the *test* datasets while using optimal lambda
+
+```{r echo=T, results='hide'}
+# Apply ridge model using test data and optimal lambda
+rdg.pred <- predict(rdg.train, newx=x1.test, s=opt_lambda)
+
+
+```
+
+#### Generate Predictions against Test Data using parameters reflecting OLS
+***
+__Note:__ In order for glmnet() to yield the exact least squares coefficients when  $\lambda$=0 , we use the argument `exact=T` when calling the predict() function. Otherwise, `predict()` will interpolate over the grid of $\lambda$  values used in fitting the glmnet() model, yielding approximate results. Even when we use `exact = T`, there remains a slight discrepancy between `glmnet()` and `lm` output due to numerical approximation on the part of glmnet(). 
+Furthermore, when using `exact = T`, we are forced to supply the original `x=` and `y=` arguments(in this case x=x1.train and y=y1.train) to safely rerun `glmnet`.
+
+```{r}
+# Generate predictions that reflect OLS regression:
+ols.pred <- predict(rdg.train, x=x1.train,  y=y1.train, 
+                   newx=x1.test, s=0,exact=T)
+```
+
+#### Compare Ridge and OLS Coefficients Calculated Against Test Data
+```{r echo=T, results='hide'}
+# Coefficients, Ridge vs OLS
+cbind(
+  predict(rdg.train, newx=x1.test, s=opt_lambda, type="coefficients"),
+  predict(rdg.train, x=x1.train,  y=y1.train, newx=x1.test, s=0,exact=T, type = "coefficients")
+  )
+
+```
+
+#### Compare Mean Square Error of Ridge Regression and OLS Regression
+
+```{r}
+# Store MSE for Ridge and OLS
+MSE.rdg <- mean((rdg.pred - y1.test)^2 )
+MSE.ols <- mean((ols.pred - y1.test)^2)
+
+# Compare MSE
+list(
+  MSE_Compare = cbind("MSE Ridge" = MSE.rdg,"MSE OLS" = MSE.ols),
+  `MSE.rdg_<_MSE.ols?` = MSE.rdg < MSE.ols,
+  `Percent_Diff` = scales::percent(round((MSE.rdg/MSE.ols - 1),4))
+  )
+
+
+```
+
+
+#### Compare R^2^ for both Ridge and OLS regression estimates
+```{r}
+# Sum of Squares Total and Error - Ridge
+sst <- sum((y1.test - mean(y1.test))^2)
+sse.rdg <- sum((rdg.pred - y1.test)^2)
+
+# R-squared - Ridge
+rsq.rdg <- 1 - sse.rdg/sst
+
+# Sum of Squares Total and Error - OLS
+sst <- sum((y1.test - mean(y1.test))^2)
+sse.ols <- sum((ols.pred - y1.test)^2)
+
+# R-squared - OLS
+rsq.ols <- 1 - sse.ols/sst
+
+list(R_squared_Ridge = round(rsq.rdg,4),
+     R_squared_OLS = round(rsq.ols,4))
+
+```
+
+From both the MSE and R^2^, again in this instance we see very little difference in performance between the Ridge and OLS models. Since the splitting of data into training and test datasets relies on random selection, it is possible to re-run the modelling process, and get different results each time. This modelling was indeed re-run several times, and in most cases the Ridge outperformed OLS - but only very slightly. So again it seems Ridge regression had minimal impact on the performance of the OLS model.
+
+In many cases, Ridge regression produces more stable estimates than OLS, making it less prone to over-fitting training data. Ridge regression might, therefore, predict training data less well than OLS, but better generalise to new data. This will particularly be the case when extreme variance in the training data is high, which tends to happen when the sample size is low and/or the number of features is high relative to the number of observations. (See [Jackson, S.,2017,'How and when: ridge regression with glmnet'](https://drsimonj.svbtle.com/ridge-regression-with-glmnet) for a full discussion)
+
+However in this case, we have a larger number of observations (over 1,400), and a relatively small number of variables (11). This may explain why multicollinearity has thus far not proven to be problematic in the OLS model, and why it has similar prediction performance to Ridge regression.
+
+
+#### Re-create and Re-fit Ridge Regression Model on _Full_ Dataset, using Optimal $\lambda$
+##### Create Ridge Model and Re-fit Model:
+```{r}
+# Re-Create model and re-fit using full sets x1 and y1
+rdg.fit <- glmnet(x1, y1, alpha = 0, lambda = lambda_seq)
+
+# Re-fit ridge model using optimal lambda
+rdg.fit.pred <- predict(rdg.fit,type = "coefficients", s=opt_lambda)
+
+# Predicted y-values from re-fitted model:
+rdg.fit.pred_y <- predict(rdg.fit, newx = x1, s=opt_lambda)
+
+
+```
+
+
+##### Re-fit model using $\lambda$ = 0 (for OLS)
+```{r echo=T, results='hide'}
+# Re-fit OLS model using lambda = 0:
+ols.fit.pred <- predict(rdg.fit, x=x1,y=y1, s=0, newx = x1, exact=T,type="coefficients")
+
+# Predicted y-values from re-fitted model:
+ols.fit.pred_y <- predict(rdg.fit, x=x1,y=y1, newx = x1, s=0, exact=T)
+
+```
+
+##### Compare Ridge and OLS Coefficients Calculated against Full Dataset
+```{r echo = T, results='hide'}
+# Ridge and OLS Coefficients Comparison:
+cbind(rdg.fit.pred, ols.fit.pred)
+
+```
+
+##### Compare MSE~Ridge~ with MSE~OLS~
+```{r}
+MSE_rdg.fit <- mean((rdg.fit.pred_y - y1)^2)
+MSE_ols.fit <- mean((ols.fit.pred_y - y1)^2)
+
+# Is MSE_rdg.full < MSE_ols.full
+MSE_rdg.fit < MSE_ols.fit
+
+# Percentage change in Mean Square Error:
+scales::percent(MSE_rdg.fit/MSE_ols.fit - 1) # percent() function from scales package
+
+
+```
+
+```{r}
+# Store MSE for Ridge and OLS
+MSE_rdg.fit <- mean((rdg.fit.pred_y - y1)^2)
+MSE_ols.fit <- mean((ols.fit.pred_y - y1)^2)
+
+# Compare MSE
+list(
+  MSE_Compare = cbind("MSE Ridge"=MSE_rdg.fit, "MSE OLS"=MSE_ols.fit),
+  `MSE.rdg_<_MSE.ols?` = MSE_rdg.fit < MSE_ols.fit,
+  Percent_Diff = scales::percent(round((MSE_rdg.fit/MSE_ols.fit-1),4))
+  )
+
+
+```
+
+##### Compare R^2^ for both Ridge and OLS regression estimates
+```{r}
+# Sum of Squares Total and Error - Ridge
+sst.rdg <- sum((y1 - mean(y1))^2)
+sse.rdg <- sum((rdg.fit.pred_y - y1)^2)
+
+# R-squared - Ridge
+rsq.rdg <- 1 - sse.rdg/sst.rdg
+
+# Sum of Squares Total and Error - OLS
+sst.ols <- sum((y1 - mean(y1))^2)
+sse.ols <- sum((ols.fit.pred_y - y1)^2)
+
+# R-squared - Ridge
+rsq.ols <- 1 - sse.ols/sst.ols
+
+list(R_squared_Ridge = round(rsq.rdg,4),
+     R_squared_OLS = round(rsq.ols,4))
+```
+
+##### Summarise Ridge vs OLS Modelling Results
+```{r echo=T, results='hide'}
+
+list(Ridge.Coeffs_vs_OLS.Coeffs = cbind(rdg.fit.pred, ols.fit.pred))
+
+```
+```{r }
+
+list(
+  MSE_Compare = cbind("MSE Ridge"=MSE_rdg.fit, "MSE OLS"=MSE_ols.fit),
+  `MSE.rdg_<_MSE.ols?` = MSE_rdg.fit < MSE_ols.fit,
+  Percent_Diff = scales::percent(round((MSE_rdg.fit/MSE_ols.fit-1),4)),
+  R_Squared_Compare = cbind("R-squared_Ridge" = round(rsq.rdg,4),"R-squared_OLS" = round(rsq.ols,4))
+  )
+
+```
+
+As expected, Ridge regression delivered negligible (if any) benefit over the original OLS model. This again implies that the original OLS model was not impacted by multicollinearity and has sound predictive performance. 
 
 
